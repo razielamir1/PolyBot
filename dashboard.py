@@ -186,10 +186,10 @@ _HTML = """<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>אירוע / שוק</th>
-          <th>מחיר מקסימלי</th>
-          <th>שינוי מקסימלי (חלון)</th>
-          <th>התראות שנשלחו</th>
+          <th>אירוע / שוק פוליטי</th>
+          <th title="הסתברות הגבוהה ביותר מבין כל הטוקנים של האירוע הזה (0%=בלתי סביר, 100%=וודאי)">מחיר גבוה ביותר באירוע (%)</th>
+          <th title="הקפיצה הגדולה ביותר שנצפתה באחד הטוקנים של האירוע בתוך חלון הזמן (5 דק׳)">שינוי מקסימלי בחלון 5 דק׳</th>
+          <th title="כמה פעמים נשלחה התראת טלגרם על אירוע זה מאז הפעלת הבוט">התראות שנשלחו לטלגרם</th>
         </tr></thead>
         <tbody id="marketBody"><tr><td colspan="4" class="empty">ממתין...</td></tr></tbody>
       </table>
@@ -228,7 +228,7 @@ const fmtChg  = v => v == null
   : `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;
 
 // ── pagination state ───────────────────────────────────────────────────
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 let allGrouped  = [];
 let currentPage = 1;
 
