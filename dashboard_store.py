@@ -42,6 +42,9 @@ class DashboardStore:
         # Event flag: when set, main loop should re-scan markets
         self._refresh_markets_flag = threading.Event()
 
+        # Event flag: when set, main loop should run a price cycle immediately
+        self._force_cycle_flag = threading.Event()
+
         # Last manual action result message
         self._last_action_msg: str = ""
 
@@ -131,7 +134,15 @@ class DashboardStore:
     def trigger_market_refresh(self) -> dict:
         """Signal the main loop to re-scan markets on next cycle."""
         self._refresh_markets_flag.set()
-        msg = "בקשת רענון שווקים נשלחה ✅ — תופעל במחזור הבא"
+        self._force_cycle_flag.set()  # also wake the sleep immediately
+        msg = "בקשת רענון שווקים נשלחה ✅ — תופעל עכשיו"
+        self.set_action_msg(msg)
+        return {"ok": True, "message": msg}
+
+    def trigger_force_cycle(self) -> dict:
+        """Signal the main loop to run a price fetch cycle immediately."""
+        self._force_cycle_flag.set()
+        msg = "מחזור בדיקה הופעל ✅ — מביא מחירים עכשיו..."
         self.set_action_msg(msg)
         return {"ok": True, "message": msg}
 
@@ -139,6 +150,13 @@ class DashboardStore:
         """Called by main loop — returns True if a refresh was requested, clears the flag."""
         if self._refresh_markets_flag.is_set():
             self._refresh_markets_flag.clear()
+            return True
+        return False
+
+    def consume_force_cycle(self) -> bool:
+        """Called by main loop sleep loop — returns True if immediate cycle was requested."""
+        if self._force_cycle_flag.is_set():
+            self._force_cycle_flag.clear()
             return True
         return False
 

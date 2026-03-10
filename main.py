@@ -151,7 +151,16 @@ def main() -> None:
             else:
                 logger.warning(f"Cycle {cycle}: Connection issue or no prices.")
 
-            time.sleep(poll_interval)
+            # Interruptible sleep — wakes early if dashboard requests a force cycle
+            if dashboard_enabled:
+                from dashboard_store import store
+                deadline = time.time() + poll_interval
+                while time.time() < deadline:
+                    time.sleep(1)
+                    if store.consume_force_cycle():
+                        break
+            else:
+                time.sleep(poll_interval)
 
     except KeyboardInterrupt:
         logger.info("Exiting...")
