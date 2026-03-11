@@ -45,9 +45,7 @@ class PriceWindow:
             return None
         oldest_price = self._data[0][1]
         newest_price = self._data[-1][1]
-        if oldest_price == 0:
-            return None  # avoid division by zero
-        return ((newest_price - oldest_price) / oldest_price) * 100.0
+        return (newest_price - oldest_price) * 100.0
 
     @property
     def latest_price(self) -> float | None:
