@@ -506,12 +506,12 @@ _HTML = """<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>אירוע / שוק פוליטי</th>
+          <th>נושא</th><th>תשובה</th>
           <th title="הסתברות הגבוהה ביותר מבין כל הטוקנים של האירוע הזה">מחיר גבוה ביותר באירוע (%)</th>
           <th title="הקפיצה הגדולה ביותר שנצפתה בחלון 5 דק׳">שינוי מקסימלי בחלון 5 דק׳</th>
           <th title="כמה התראות נשלחו מאז הפעלת הבוט">התראות שנשלחו לטלגרם</th>
         </tr></thead>
-        <tbody id="marketBody"><tr><td colspan="4" class="empty">ממתין...</td></tr></tbody>
+        <tbody id="marketBody"><tr><td colspan="5" class="empty">ממתין...</td></tr></tbody>
       </table>
     </div>
     <div class="pager">
@@ -562,17 +562,21 @@ let allGrouped = [], currentPage = 1;
 function groupByLabel(stats) {
   const map = {};
   stats.forEach(m => {
-    if (!map[m.label]) map[m.label] = { label: m.label, prices: [], pct_changes: [], alert_count: 0 };
-    map[m.label].prices.push(m.current_price);
-    if (m.pct_change != null) map[m.label].pct_changes.push(m.pct_change);
-    map[m.label].alert_count += m.alert_count;
+    const ev = m.event_label || m.label;
+    const out = (m.label && m.label !== ev) ? m.label : '—';
+    const key = ev + '||' + out;
+    if (!map[key]) map[key] = { event_label: ev, label: out, prices: [], pct_changes: [], alert_count: 0 };
+    map[key].prices.push(m.current_price);
+    if (m.pct_change != null) map[key].pct_changes.push(m.pct_change);
+    map[key].alert_count += m.alert_count;
   });
   return Object.values(map).map(g => ({
+    event_label: g.event_label,
     label: g.label,
     max_price: g.prices.length ? Math.max(...g.prices) : null,
     max_pct: g.pct_changes.length ? Math.max(...g.pct_changes) : null,
     alert_count: g.alert_count,
-  })).sort((a,b) => (b.alert_count - a.alert_count) || a.label.localeCompare(b.label));
+  })).sort((a,b) => (b.alert_count - a.alert_count) || a.event_label.localeCompare(b.event_label));
 }
 
 function renderMarketPage() {
@@ -585,10 +589,11 @@ function renderMarketPage() {
   document.getElementById('nextBtn').disabled = currentPage >= pages;
   document.getElementById('mktBadge').textContent = total + ' שווקים';
   const tbody = document.getElementById('marketBody');
-  if (!slice.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">ממתין לנתונים...</td></tr>'; return; }
+  if (!slice.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">ממתין לנתונים...</td></tr>'; return; }
   tbody.innerHTML = slice.map(m => `
     <tr>
-      <td class="lbl" title="${m.label}">${m.label}</td>
+      <td class="lbl" title="${m.event_label}">${m.event_label}</td>
+      <td class="lbl">${m.label}</td>
       <td class="mono">${m.max_price != null ? fmtPct(m.max_price) : '—'}</td>
       <td>${fmtChg(m.max_pct)}</td>
       <td>${m.alert_count > 0 ? `<span class="badge badge-orange">${m.alert_count}</span>` : '<span class="mu">0</span>'}</td>

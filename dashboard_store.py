@@ -70,6 +70,7 @@ class DashboardStore:
         cycle: int,
         prices: dict[str, float],
         token_to_label: dict[str, str],
+        token_to_event_label: dict[str, str] | None = None,
     ) -> None:
         with self._lock:
             self._bot_status["cycle_count"] = cycle
@@ -77,17 +78,21 @@ class DashboardStore:
             self._bot_status["tokens_tracked"] = len(prices)
 
             for token_id, price in prices.items():
+                lbl = token_to_label.get(token_id, token_id[:12] + "…")
+                ev_lbl = (token_to_event_label or {}).get(token_id, lbl)
                 entry = self._market_stats.setdefault(
                     token_id,
                     {
-                        "label": token_to_label.get(token_id, token_id[:12] + "…"),
+                        "label": lbl,
+                        "event_label": ev_lbl,
                         "current_price": price,
                         "pct_change": None,
                         "alert_count": 0,
                     },
                 )
                 entry["current_price"] = price
-                entry["label"] = token_to_label.get(token_id, entry["label"])
+                entry["label"] = lbl
+                entry["event_label"] = ev_lbl
 
     def record_alerts(self, alerts: list[dict]) -> None:
         with self._lock:

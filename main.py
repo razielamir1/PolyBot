@@ -155,7 +155,7 @@ def main() -> None:
 
                 if dashboard_enabled:
                     from dashboard_store import store
-                    store.record_cycle(cycle, prices, token_to_label)
+                    store.record_cycle(cycle, prices, token_to_label, token_to_event_label)
                     if alerts:
                         store.record_alerts(alerts)
             else:
