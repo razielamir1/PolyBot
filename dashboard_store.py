@@ -48,6 +48,9 @@ class DashboardStore:
         # Last manual action result message
         self._last_action_msg: str = ""
 
+        # Muted event labels — alerts for these are suppressed
+        self._muted_labels: set[str] = set()
+
         # Analytics: tokens that have ever triggered an alert ("hot markets")
         self._watched_tokens: set[str] = set()
         # token_id → deque of {t, p} — up to 2 hours of history at 30s intervals
@@ -222,6 +225,27 @@ class DashboardStore:
     # ------------------------------------------------------------------
     # Reader (called from Flask worker threads)
     # ------------------------------------------------------------------
+
+    def init_muted(self, labels: list[str]) -> None:
+        """Load persisted muted labels on startup."""
+        with self._lock:
+            self._muted_labels = set(labels)
+
+    def mute(self, event_label: str) -> None:
+        with self._lock:
+            self._muted_labels.add(event_label)
+
+    def unmute(self, event_label: str) -> None:
+        with self._lock:
+            self._muted_labels.discard(event_label)
+
+    def is_muted(self, event_label: str) -> bool:
+        with self._lock:
+            return event_label in self._muted_labels
+
+    def get_muted(self) -> list[str]:
+        with self._lock:
+            return sorted(self._muted_labels)
 
     def get_hot_markets(self) -> list[dict]:
         """Return hot-market summaries sorted by alert_count desc."""

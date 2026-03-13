@@ -9,6 +9,8 @@ import logging
 import time
 import requests
 
+from dashboard_store import store as _store
+
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
@@ -55,6 +57,11 @@ class TelegramAlerter:
         token_id = alert["token_id"]
         cooldown_key = alert.get("event_label") or alert.get("label") or token_id
         now = time.time()
+
+        # Mute check
+        if _store.is_muted(cooldown_key):
+            logger.debug("Muted: %s — skipping alert", cooldown_key)
+            return False
 
         # Minimum time buffer (prevents burst within same cycle)
         last = self._last_alert.get(cooldown_key, 0)

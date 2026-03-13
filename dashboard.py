@@ -307,7 +307,49 @@ _ADMIN_HTML = """<!DOCTYPE html>
       </tbody>
     </table>
   </div>
+  <!-- Muted events -->
+  <div class="card">
+    <h2>אירועים מושתקים</h2>
+    <div id="mutedList" style="margin-bottom:12px">
+      <span style="color:var(--muted);font-size:13px">טוען...</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="muteInput" placeholder="שם אירוע להשתקה" style="flex:1;min-width:200px">
+      <button class="btn-submit" onclick="adminMute()">🔕 השתק</button>
+    </div>
+  </div>
 </div>
+
+<script>
+async function loadMuted() {
+  const r = await fetch('/api/muted');
+  const labels = await r.json();
+  const el = document.getElementById('mutedList');
+  if (!labels.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:13px">אין אירועים מושתקים</span>';
+    return;
+  }
+  el.innerHTML = labels.map(l => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #1c2128">
+      <span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l}">${l}</span>
+      <button class="btn btn-red" onclick="adminUnmute(this,'${l.replace(/'/g,"\\'")}')">הסר</button>
+    </div>`).join('');
+}
+async function adminMute() {
+  const inp = document.getElementById('muteInput');
+  const label = inp.value.trim();
+  if (!label) return;
+  await fetch('/api/mute', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_label:label})});
+  inp.value = '';
+  loadMuted();
+}
+async function adminUnmute(btn, label) {
+  btn.disabled = true;
+  await fetch('/api/unmute', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_label:label})});
+  loadMuted();
+}
+loadMuted();
+</script>
 </body>
 </html>"""
 
@@ -666,6 +708,7 @@ async function fetchStatus() {
         const ev = a.event_label || a.label;
         const out = (a.label && a.label !== ev) ? a.label : '—';
         const link = a.url ? `<a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:14px" title="פתח בפולימארקט">🔗</a>` : '';
+        const muteBtn = isAdmin ? `<button onclick="muteEvent(this,'${ev.replace(/'/g,"\\'")}',event)" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:.5;padding:0 2px" title="השתק אירוע זה">🔕</button>` : '';
         return `<tr>
           <td class="mu">${a.time}</td>
           <td class="lbl" title="${ev}">${ev}</td>
@@ -673,7 +716,7 @@ async function fetchStatus() {
           <td class="up">+${a.pct_change.toFixed(2)}%</td>
           <td class="mono">${fmtPct(a.old_price)}</td>
           <td class="mono up">${fmtPct(a.new_price)}</td>
-          <td>${link}</td>
+          <td style="white-space:nowrap">${link}${muteBtn}</td>
         </tr>`;
       }).join('');
     }
@@ -743,6 +786,21 @@ async function setThreshold() {
     });
     const d = await r.json();
     showMsg(d.message);
+  } catch(e) { showMsg('שגיאת רשת'); }
+}
+
+async function muteEvent(btn, eventLabel, e) {
+  e.stopPropagation();
+  if (!isAdmin) return;
+  if (!confirm(`להשתיק התראות עבור:\n"${eventLabel}"?`)) return;
+  try {
+    const r = await fetch('/api/mute', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({event_label: eventLabel})
+    });
+    const d = await r.json();
+    showMsg(d.message);
+    btn.textContent = '🔇'; btn.title = 'מושתק'; btn.disabled = true;
   } catch(e) { showMsg('שגיאת רשת'); }
 }
 
@@ -818,6 +876,39 @@ def api_set_threshold():
     msg = f"סף ההתראה עודכן ל-{val}%"
     store.set_action_msg(msg)
     return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/muted")
+@login_required
+@admin_required
+def api_get_muted():
+    return jsonify(store.get_muted())
+
+
+@app.route("/api/mute", methods=["POST"])
+@login_required
+@admin_required
+def api_mute():
+    data = request.get_json(force=True, silent=True) or {}
+    label = (data.get("event_label") or "").strip()
+    if not label:
+        return jsonify({"ok": False, "message": "חסר event_label"}), 400
+    store.mute(label)
+    db.add_muted_label(label)
+    return jsonify({"ok": True, "message": f"מושתק: {label}"})
+
+
+@app.route("/api/unmute", methods=["POST"])
+@login_required
+@admin_required
+def api_unmute():
+    data = request.get_json(force=True, silent=True) or {}
+    label = (data.get("event_label") or "").strip()
+    if not label:
+        return jsonify({"ok": False, "message": "חסר event_label"}), 400
+    store.unmute(label)
+    db.remove_muted_label(label)
+    return jsonify({"ok": True, "message": f"הוסר מיוט: {label}"})
 
 
 @app.route("/admin/users/<int:uid>/analytics", methods=["POST"])
@@ -1079,6 +1170,7 @@ def api_chart(token_id):
 
 def start_dashboard(port: int = 5588) -> None:
     db.init_db()
+    store.init_muted(db.get_muted_labels())
     if db.count_users() == 0:
         admin_email = os.getenv("ADMIN_EMAIL", "").strip()
         admin_password = os.getenv("ADMIN_PASSWORD", "").strip()

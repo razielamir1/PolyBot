@@ -33,6 +33,30 @@ def init_db() -> None:
             con.execute("ALTER TABLE users ADD COLUMN analytics_enabled INTEGER DEFAULT 0")
         except Exception:
             pass  # column already exists
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS muted_events (
+                event_label  TEXT PRIMARY KEY,
+                muted_at     TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        con.commit()
+
+
+def get_muted_labels() -> list[str]:
+    with _conn() as con:
+        rows = con.execute("SELECT event_label FROM muted_events ORDER BY muted_at").fetchall()
+    return [r[0] for r in rows]
+
+
+def add_muted_label(event_label: str) -> None:
+    with _conn() as con:
+        con.execute("INSERT OR IGNORE INTO muted_events (event_label) VALUES (?)", (event_label,))
+        con.commit()
+
+
+def remove_muted_label(event_label: str) -> None:
+    with _conn() as con:
+        con.execute("DELETE FROM muted_events WHERE event_label = ?", (event_label,))
         con.commit()
 
 
