@@ -59,6 +59,7 @@ def main() -> None:
     min_volume       = float(os.getenv("MIN_VOLUME_USD", "100000"))
     top_n            = int(os.getenv("TOP_N_MARKETS", "50"))
     alert_cooldown   = float(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
+    max_alerts_cycle = int(os.getenv("MAX_ALERTS_PER_CYCLE", "3"))
     fetch_limit      = int(os.getenv("FETCH_LIMIT", "100"))
     fetch_workers    = int(os.getenv("FETCH_WORKERS", "50"))
     dashboard_enabled = os.getenv("DASHBOARD_ENABLED", "false").lower() == "true"
@@ -147,7 +148,8 @@ def main() -> None:
                         a["window_seconds"] = window_seconds
                         a["event_label"] = token_to_event_label.get(tid, a["label"])
                         logger.info(f"🚀 SPIKE: {a['label']} (+{a['pct_change']}%)")
-                    alerter.send_alerts(alerts)
+                    top_alerts = sorted(alerts, key=lambda x: abs(x["pct_change"]), reverse=True)[:max_alerts_cycle]
+                    alerter.send_alerts(top_alerts)
                 else:
                     logger.info(f"Cycle {cycle}: {len(prices)} prices - No spikes.")
 

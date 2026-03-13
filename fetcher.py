@@ -158,7 +158,7 @@ class Fetcher:
                         except (json.JSONDecodeError, TypeError):
                             continue
                     if isinstance(clob_ids, list):
-                        market_label = market.get("question") or title
+                        market_label = market.get("groupItemTitle") or market.get("question") or title
                         for tid in clob_ids:
                             tid_str = str(tid)
                             token_ids.append(tid_str)
