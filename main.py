@@ -37,14 +37,14 @@ def _fmt_volume(vol: float) -> str:
 
 
 def _scan_markets(fetcher, fetch_limit, min_volume, top_n):
-    """Fetch events and extract token IDs. Returns (events, token_ids, token_to_label)."""
+    """Fetch events and extract token IDs. Returns (events, token_ids, token_to_label, token_to_url)."""
     events = fetcher.fetch_politics_events(
         limit=fetch_limit,
         min_volume=min_volume,
         top_n=top_n,
     )
-    token_ids, token_to_label = fetcher.extract_token_ids(events)
-    return events, token_ids, token_to_label
+    token_ids, token_to_label, token_to_url = fetcher.extract_token_ids(events)
+    return events, token_ids, token_to_label, token_to_url
 
 
 def main() -> None:
@@ -91,7 +91,7 @@ def main() -> None:
 
     # ── Discover high-volume Politics events ────────────────────────
     logger.info(f"Scanning for Politics events (Vol > {_fmt_volume(min_volume)})...")
-    events, token_ids, token_to_label = _scan_markets(fetcher, fetch_limit, min_volume, top_n)
+    events, token_ids, token_to_label, token_to_url = _scan_markets(fetcher, fetch_limit, min_volume, top_n)
 
     if not token_ids:
         logger.error("No tracked tokens found. Shutdown.")
@@ -121,7 +121,7 @@ def main() -> None:
                 from dashboard_store import store
                 if store.consume_refresh_request():
                     logger.info("Dashboard triggered market refresh — re-scanning...")
-                    events, token_ids, token_to_label = _scan_markets(
+                    events, token_ids, token_to_label, token_to_url = _scan_markets(
                         fetcher, fetch_limit, min_volume, top_n
                     )
                     state = StateManager(window_seconds=window_seconds, threshold_pct=threshold_pct)
@@ -135,10 +135,11 @@ def main() -> None:
                 alerts = state.update(prices)
                 if alerts:
                     for a in alerts:
-                        label = token_to_label.get(a["token_id"], "Unknown")
-                        a["label"] = label
+                        tid = a["token_id"]
+                        a["label"] = token_to_label.get(tid, "Unknown")
+                        a["url"] = token_to_url.get(tid, "")
                         a["window_seconds"] = window_seconds
-                        logger.info(f"🚀 SPIKE: {label} (+{a['pct_change']}%)")
+                        logger.info(f"🚀 SPIKE: {a['label']} (+{a['pct_change']}%)")
                     alerter.send_alerts(alerts)
                 else:
                     logger.info(f"Cycle {cycle}: {len(prices)} prices - No spikes.")

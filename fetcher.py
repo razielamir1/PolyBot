@@ -134,13 +134,16 @@ class Fetcher:
     def extract_token_ids(
         self,
         events: list[dict[str, Any]],
-    ) -> tuple[list[str], dict[str, str]]:
+    ) -> tuple[list[str], dict[str, str], dict[str, str]]:
         """Extract CLOB token IDs from the child markets of each event."""
         token_ids: list[str] = []
         token_to_label: dict[str, str] = {}
+        token_to_url: dict[str, str] = {}
 
         for event in events:
             title = event.get("title", "Unknown event")
+            slug = event.get("slug", "")
+            url = f"https://polymarket.com/event/{slug}" if slug else ""
             markets = event.get("markets", [])
             if not isinstance(markets, list):
                 continue
@@ -158,6 +161,7 @@ class Fetcher:
                             tid_str = str(tid)
                             token_ids.append(tid_str)
                             token_to_label[tid_str] = title
+                            token_to_url[tid_str] = url
 
         seen: set[str] = set()
         unique: list[str] = []
@@ -165,7 +169,7 @@ class Fetcher:
             if tid not in seen:
                 seen.add(tid)
                 unique.append(tid)
-        return unique, token_to_label
+        return unique, token_to_label, token_to_url
 
     # ------------------------------------------------------------------
     # Price fetching (CLOB API)

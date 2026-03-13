@@ -88,11 +88,14 @@ class TelegramAlerter:
         # Use HTML for better robustness against special characters in labels/IDs
         win_sec = alert.get("window_seconds", 300)
         win_label = f"{round(win_sec / 60)} min" if win_sec >= 60 else f"{int(win_sec)} sec"
+        url = alert.get("url", "")
+        link_line = f"\n<a href=\"{url}\">🔗 View on Polymarket</a>" if url else ""
         return (
             f"🚀 <b>Polymarket Price Alert</b>\n\n"
             f"<b>Market:</b> {label}\n"
             f"<b>Change:</b> <code>+{pct:.2f}%</code> in {win_label}\n"
             f"<b>Price:</b> <code>{oldest:.4f} → {latest:.4f}</code>"
+            f"{link_line}"
         )
 
     def _send_message(self, text: str) -> bool:
