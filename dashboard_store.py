@@ -48,6 +48,15 @@ class DashboardStore:
         # Last manual action result message
         self._last_action_msg: str = ""
 
+        # Analytics: tokens that have ever triggered an alert ("hot markets")
+        self._watched_tokens: set[str] = set()
+        # token_id → deque of {t, p} — up to 2 hours of history at 30s intervals
+        self._price_history: dict[str, deque] = {}
+        # token_id → list of time strings when alerts fired
+        self._alert_times: dict[str, list] = {}
+        # token_id → url (latest known)
+        self._token_url: dict[str, str] = {}
+
         # Runtime-adjustable threshold (set by main.py on startup)
         self._threshold: float = 10.0
         self._pending_threshold: float | None = None
@@ -94,6 +103,12 @@ class DashboardStore:
                 entry["label"] = lbl
                 entry["event_label"] = ev_lbl
 
+                # Record price history for hot markets only
+                if token_id in self._watched_tokens:
+                    if token_id not in self._price_history:
+                        self._price_history[token_id] = deque(maxlen=240)
+                    self._price_history[token_id].append({"t": _now_iso(), "p": price})
+
     def record_alerts(self, alerts: list[dict]) -> None:
         with self._lock:
             for a in alerts:
@@ -103,15 +118,26 @@ class DashboardStore:
                     entry["pct_change"] = a["pct_change"]
                     entry["alert_count"] = entry.get("alert_count", 0) + 1
 
+                # Track as hot market
+                self._watched_tokens.add(token_id)
+                url = a.get("url", "")
+                if url:
+                    self._token_url[token_id] = url
+                t = _now_iso()
+                if token_id not in self._alert_times:
+                    self._alert_times[token_id] = []
+                self._alert_times[token_id].append(t)
+
                 self._alert_feed.appendleft(
                     {
-                        "time": _now_iso(),
+                        "time": t,
                         "label": a.get("label", token_id),
                         "event_label": a.get("event_label", a.get("label", token_id)),
                         "token_id": token_id,
                         "pct_change": a["pct_change"],
                         "old_price": a["oldest_price"],
                         "new_price": a["latest_price"],
+                        "url": url,
                     }
                 )
 
@@ -196,6 +222,42 @@ class DashboardStore:
     # ------------------------------------------------------------------
     # Reader (called from Flask worker threads)
     # ------------------------------------------------------------------
+
+    def get_hot_markets(self) -> list[dict]:
+        """Return hot-market summaries sorted by alert_count desc."""
+        with self._lock:
+            result = []
+            for token_id in self._watched_tokens:
+                stats = self._market_stats.get(token_id, {})
+                result.append({
+                    "token_id": token_id,
+                    "label": stats.get("label", token_id[:12] + "…"),
+                    "event_label": stats.get("event_label", stats.get("label", "")),
+                    "current_price": stats.get("current_price"),
+                    "pct_change": stats.get("pct_change"),
+                    "alert_count": stats.get("alert_count", 0),
+                    "url": self._token_url.get(token_id, ""),
+                    "history_len": len(self._price_history.get(token_id, [])),
+                })
+            result.sort(key=lambda x: x["alert_count"], reverse=True)
+            return result
+
+    def get_chart_data(self, token_id: str) -> dict | None:
+        """Return price history and alert markers for one hot market."""
+        with self._lock:
+            if token_id not in self._watched_tokens:
+                return None
+            stats = self._market_stats.get(token_id, {})
+            history = list(self._price_history.get(token_id, []))
+            alert_times = list(self._alert_times.get(token_id, []))
+            return {
+                "token_id": token_id,
+                "label": stats.get("label", token_id[:12] + "…"),
+                "event_label": stats.get("event_label", stats.get("label", "")),
+                "url": self._token_url.get(token_id, ""),
+                "history": history,
+                "alert_times": alert_times,
+            }
 
     def snapshot(self) -> dict:
         """Return a serialisable copy of all dashboard data."""

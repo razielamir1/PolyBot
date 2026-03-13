@@ -7,14 +7,18 @@ Routes:
   GET      /                   → Dashboard (login required)
   GET      /admin              → User management (admin only)
   POST     /admin/users/add    → Create user (admin only)
-  POST     /admin/users/<id>/delete → Delete user (admin only)
-  POST     /admin/users/<id>/role   → Toggle role (admin only)
+  POST     /admin/users/<id>/delete  → Delete user (admin only)
+  POST     /admin/users/<id>/role    → Toggle role (admin only)
+  POST     /admin/users/<id>/analytics → Toggle analytics access (admin only)
   GET      /api/status         → JSON snapshot (login required)
   GET      /api/feed           → JSON alert feed (login required)
   POST     /api/trigger-test   → Test Telegram (admin only)
   POST     /api/refresh-markets → Re-scan markets (admin only)
   POST     /api/force-cycle    → Immediate cycle (admin only)
   POST     /api/set-threshold  → Change alert threshold (admin only)
+  GET      /analytics          → Analytics dashboard (admin or analytics_enabled)
+  GET      /api/hot-markets    → Hot markets list (admin or analytics_enabled)
+  GET      /api/chart/<token_id> → Price history for one token (admin or analytics_enabled)
 """
 
 import logging
@@ -56,9 +60,13 @@ class User(UserMixin):
         self.id = data["id"]
         self.email = data["email"]
         self.role = data["role"]
+        self.analytics_enabled = bool(data.get("analytics_enabled", 0))
 
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    def can_analytics(self) -> bool:
+        return self.role == "admin" or self.analytics_enabled
 
 
 @login_manager.user_loader
@@ -73,6 +81,17 @@ def admin_required(f):
         if not current_user.is_authenticated or not current_user.is_admin():
             if request.is_json or request.path.startswith("/api/"):
                 return jsonify({"ok": False, "message": "Admin access required"}), 403
+            return redirect(url_for("index"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def analytics_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.can_analytics():
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify({"ok": False, "message": "Analytics access required"}), 403
             return redirect(url_for("index"))
         return f(*args, **kwargs)
     return decorated
@@ -244,7 +263,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
     <h2>משתמשים קיימים ({{ users|length }})</h2>
     <table>
       <thead><tr>
-        <th>אימייל</th><th>תפקיד</th><th>נוצר</th><th>פעולות</th>
+        <th>אימייל</th><th>תפקיד</th><th>אנליטיקס</th><th>נוצר</th><th>פעולות</th>
       </tr></thead>
       <tbody>
       {% for u in users %}
@@ -254,6 +273,17 @@ _ADMIN_HTML = """<!DOCTYPE html>
           {% if u.id == current_id %}<span class="you">(אתה)</span>{% endif %}
         </td>
         <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+        <td>
+          {% if u.role == 'admin' %}
+            <span style="color:var(--muted);font-size:12px">תמיד</span>
+          {% else %}
+            <form method="POST" action="/admin/users/{{ u.id }}/analytics" style="display:inline">
+              <button type="submit" class="btn {% if u.analytics_enabled %}btn-green{% endif %}" style="min-width:60px">
+                {% if u.analytics_enabled %}✓ מופעל{% else %}כבוי{% endif %}
+              </button>
+            </form>
+          {% endif %}
+        </td>
         <td style="color:var(--muted);font-size:12px">{{ u.created_at[:10] }}</td>
         <td>
           <div class="actions">
@@ -473,6 +503,7 @@ _HTML = """<!DOCTYPE html>
   <div class="user-bar">
     <span id="userEmail" style="color:var(--text)"></span>
     <span id="roleBadge" class="role-badge"></span>
+    <a href="/analytics" id="analyticsLink" style="display:none">📊 אנליטיקס</a>
     <a href="/admin" id="adminLink" style="display:none">🔧 ניהול</a>
     <a href="/logout">יציאה</a>
   </div>
@@ -526,9 +557,9 @@ _HTML = """<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>שעה (UTC)</th><th>נושא</th><th>תשובה</th><th>קפיצה</th><th>מחיר לפני</th><th>מחיר אחרי</th>
+          <th>שעה (UTC)</th><th>נושא</th><th>תשובה</th><th>קפיצה</th><th>מחיר לפני</th><th>מחיר אחרי</th><th></th>
         </tr></thead>
-        <tbody id="historyBody"><tr><td colspan="6" class="empty">אין היסטוריה עדיין.</td></tr></tbody>
+        <tbody id="historyBody"><tr><td colspan="7" class="empty">אין היסטוריה עדיין.</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -543,7 +574,7 @@ const fmtChg = v => v == null
 
 let isAdmin = false;
 
-function applyAuthUI(admin, email, role, threshold) {
+function applyAuthUI(admin, email, role, threshold, canAnalytics) {
   isAdmin = admin;
   document.getElementById('userEmail').textContent = email;
   const rb = document.getElementById('roleBadge');
@@ -553,6 +584,9 @@ function applyAuthUI(admin, email, role, threshold) {
     document.getElementById('adminBar').style.display = 'flex';
     document.getElementById('adminLink').style.display = 'inline';
     if (threshold != null) document.getElementById('thresholdInput').value = threshold;
+  }
+  if (canAnalytics) {
+    document.getElementById('analyticsLink').style.display = 'inline';
   }
 }
 
@@ -616,7 +650,7 @@ async function fetchStatus() {
     document.getElementById('last-refresh').textContent = 'רענון: ' + new Date().toLocaleTimeString('he-IL');
 
     if (firstLoad) {
-      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold);
+      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics);
       firstLoad = false;
     }
 
@@ -626,11 +660,12 @@ async function fetchStatus() {
 
     const hbody = document.getElementById('historyBody');
     if (!data.alert_feed.length) {
-      hbody.innerHTML = '<tr><td colspan="6" class="empty">אין היסטוריה עדיין.</td></tr>';
+      hbody.innerHTML = '<tr><td colspan="7" class="empty">אין היסטוריה עדיין.</td></tr>';
     } else {
       hbody.innerHTML = data.alert_feed.map(a => {
         const ev = a.event_label || a.label;
         const out = (a.label && a.label !== ev) ? a.label : '—';
+        const link = a.url ? `<a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:14px" title="פתח בפולימארקט">🔗</a>` : '';
         return `<tr>
           <td class="mu">${a.time}</td>
           <td class="lbl" title="${ev}">${ev}</td>
@@ -638,6 +673,7 @@ async function fetchStatus() {
           <td class="up">+${a.pct_change.toFixed(2)}%</td>
           <td class="mono">${fmtPct(a.old_price)}</td>
           <td class="mono up">${fmtPct(a.new_price)}</td>
+          <td>${link}</td>
         </tr>`;
       }).join('');
     }
@@ -736,6 +772,7 @@ def api_status():
     data["is_admin"] = current_user.is_admin()
     data["user_email"] = current_user.email
     data["user_role"] = current_user.role
+    data["can_analytics"] = current_user.can_analytics()
     return jsonify(data)
 
 
@@ -781,6 +818,259 @@ def api_set_threshold():
     msg = f"סף ההתראה עודכן ל-{val}%"
     store.set_action_msg(msg)
     return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/users/<int:uid>/analytics", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_analytics(uid):
+    user = db.get_user_by_id(uid)
+    if not user:
+        return redirect(url_for("admin", msg="משתמש לא נמצא", cls="msg-err"))
+    new_val = not bool(user.get("analytics_enabled", 0))
+    db.update_user_analytics(uid, new_val)
+    state = "מופעל" if new_val else "כבוי"
+    return redirect(url_for("admin", msg=f"גישת אנליטיקס {state} למשתמש {user['email']}"))
+
+
+# ---------------------------------------------------------------------------
+# Analytics HTML
+# ---------------------------------------------------------------------------
+
+_ANALYTICS_HTML = """<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolyBot — Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+        --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;
+        --orange:#f0883e;--yellow:#d29922;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
+  header{padding:12px 20px;border-bottom:1px solid var(--border);
+         display:flex;align-items:center;gap:10px;}
+  header h1{font-size:16px;font-weight:600;flex:1;}
+  a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
+             border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
+  a.btn-back:hover{background:#21262d;}
+  .page{display:flex;gap:16px;padding:16px 20px;height:calc(100vh - 53px);}
+  .sidebar{width:320px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;}
+  .main{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;}
+  .card h2{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;
+           letter-spacing:.5px;margin-bottom:10px;}
+  .market-item{padding:10px 12px;border-radius:6px;border:1px solid var(--border);
+               cursor:pointer;background:var(--bg);margin-bottom:6px;transition:border-color .15s;}
+  .market-item:hover{border-color:var(--accent);}
+  .market-item.active{border-color:var(--accent);background:rgba(88,166,255,.06);}
+  .market-ev{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .market-out{font-size:11px;color:var(--muted);margin-top:2px;}
+  .market-meta{display:flex;gap:8px;margin-top:5px;align-items:center;}
+  .badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;}
+  .badge-orange{background:rgba(240,136,62,.15);color:var(--orange);}
+  .price{font-size:12px;color:var(--accent);font-family:Consolas,monospace;}
+  .empty{color:var(--muted);padding:14px 0;text-align:center;font-size:13px;}
+  .chart-card{flex:1;display:flex;flex-direction:column;}
+  .chart-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .chart-title{font-size:15px;font-weight:600;flex:1;}
+  .chart-sub{font-size:12px;color:var(--muted);}
+  .chart-link{color:var(--accent);font-size:13px;text-decoration:none;}
+  .chart-link:hover{text-decoration:underline;}
+  .chart-wrap{flex:1;position:relative;min-height:300px;}
+  .placeholder{display:flex;align-items:center;justify-content:center;
+               height:100%;color:var(--muted);font-size:14px;border:1px dashed var(--border);
+               border-radius:8px;}
+  #refreshNote{font-size:11px;color:var(--muted);}
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Analytics — שווקים חמים</h1>
+  <span id="refreshNote"></span>
+  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+</header>
+<div class="page">
+  <div class="sidebar">
+    <div class="card" style="flex:1">
+      <h2>שווקים שהתריעו <span id="countBadge"></span></h2>
+      <div id="marketList"><div class="empty">ממתין לנתונים...</div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="card chart-card" id="chartCard">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="chartTitle">בחר שוק מהרשימה</div>
+          <div class="chart-sub" id="chartSub"></div>
+        </div>
+        <a class="chart-link" id="chartLink" href="#" target="_blank" rel="noopener" style="display:none">🔗 פתח בפולימארקט</a>
+      </div>
+      <div class="chart-wrap">
+        <div class="placeholder" id="chartPlaceholder">← בחר שוק מהרשימה כדי לראות גרף מחיר</div>
+        <canvas id="priceChart" style="display:none"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const fmtPct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+let hotMarkets = [];
+let selectedToken = null;
+let chartInstance = null;
+
+async function loadHotMarkets() {
+  try {
+    const r = await fetch('/api/hot-markets');
+    if (r.status === 401 || r.status === 403) { window.location.href = '/'; return; }
+    hotMarkets = await r.json();
+    renderMarketList();
+    document.getElementById('countBadge').textContent = hotMarkets.length || '';
+    document.getElementById('refreshNote').textContent = 'עדכון אחרון: ' + new Date().toLocaleTimeString('he-IL');
+    if (selectedToken) loadChart(selectedToken);
+  } catch(e) {}
+}
+
+function renderMarketList() {
+  const el = document.getElementById('marketList');
+  if (!hotMarkets.length) {
+    el.innerHTML = '<div class="empty">עדיין אין שווקים שהתריעו</div>';
+    return;
+  }
+  el.innerHTML = hotMarkets.map(m => {
+    const ev = m.event_label || m.label;
+    const out = (m.label && m.label !== ev) ? m.label : null;
+    const active = m.token_id === selectedToken ? ' active' : '';
+    return `<div class="market-item${active}" onclick="selectMarket('${m.token_id}')">
+      <div class="market-ev" title="${ev}">${ev}</div>
+      ${out ? `<div class="market-out">${out}</div>` : ''}
+      <div class="market-meta">
+        <span class="badge badge-orange">${m.alert_count} התראות</span>
+        <span class="price">${fmtPct(m.current_price)}</span>
+        ${m.pct_change != null ? `<span style="color:var(--green);font-size:11px">+${m.pct_change.toFixed(2)}%</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectMarket(tokenId) {
+  selectedToken = tokenId;
+  renderMarketList();
+  loadChart(tokenId);
+}
+
+async function loadChart(tokenId) {
+  try {
+    const r = await fetch('/api/chart/' + tokenId);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderChart(data);
+  } catch(e) {}
+}
+
+function renderChart(data) {
+  const ev = data.event_label || data.label;
+  const out = (data.label && data.label !== ev) ? data.label : null;
+  document.getElementById('chartTitle').textContent = ev;
+  document.getElementById('chartSub').textContent = out || '';
+  const linkEl = document.getElementById('chartLink');
+  if (data.url) { linkEl.href = data.url; linkEl.style.display = 'inline'; }
+  else { linkEl.style.display = 'none'; }
+
+  document.getElementById('chartPlaceholder').style.display = 'none';
+  const canvas = document.getElementById('priceChart');
+  canvas.style.display = 'block';
+
+  const history = data.history || [];
+  const alertSet = new Set(data.alert_times || []);
+  const labels = history.map(h => h.t);
+  const prices = history.map(h => +(h.p * 100).toFixed(2));
+
+  // Point radii: bigger red dots at alert times
+  const pointRadii = labels.map(t => alertSet.has(t) ? 6 : 2);
+  const pointColors = labels.map(t => alertSet.has(t) ? '#f85149' : '#58a6ff');
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'מחיר (%)',
+        data: prices,
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: pointRadii,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toFixed(1) + '%' + (alertSet.has(labels[ctx.dataIndex]) ? ' 🔔' : '')
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8b949e', maxTicksLimit: 8, maxRotation: 0 },
+          grid: { color: '#21262d' }
+        },
+        y: {
+          ticks: { color: '#8b949e', callback: v => v + '%' },
+          grid: { color: '#21262d' },
+          min: 0, max: 100
+        }
+      }
+    }
+  });
+}
+
+loadHotMarkets();
+setInterval(loadHotMarkets, 30000);
+</script>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Analytics routes
+# ---------------------------------------------------------------------------
+
+@app.route("/analytics")
+@login_required
+@analytics_required
+def analytics():
+    return _ANALYTICS_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/hot-markets")
+@login_required
+@analytics_required
+def api_hot_markets():
+    return jsonify(store.get_hot_markets())
+
+
+@app.route("/api/chart/<token_id>")
+@login_required
+@analytics_required
+def api_chart(token_id):
+    data = store.get_chart_data(token_id)
+    if data is None:
+        return jsonify({"ok": False, "message": "Token not found"}), 404
+    return jsonify(data)
 
 
 # ---------------------------------------------------------------------------
