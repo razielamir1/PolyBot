@@ -79,6 +79,7 @@ def main() -> None:
         from dashboard import start_dashboard
         from dashboard_store import store
         store.register_alerter(alerter)
+        store.init_threshold(threshold_pct)
         start_dashboard(port=dashboard_port)
         logger.info(f"Dashboard running at http://localhost:{dashboard_port}")
 
@@ -116,9 +117,14 @@ def main() -> None:
         while True:
             cycle += 1
 
-            # Check if dashboard requested a market refresh
+            # Check if dashboard requested a market refresh or threshold change
             if dashboard_enabled:
                 from dashboard_store import store
+                new_thresh = store.consume_threshold_change()
+                if new_thresh is not None:
+                    threshold_pct = new_thresh
+                    state = StateManager(window_seconds=window_seconds, threshold_pct=threshold_pct)
+                    logger.info(f"Threshold updated to {threshold_pct}%")
                 if store.consume_refresh_request():
                     logger.info("Dashboard triggered market refresh — re-scanning...")
                     events, token_ids, token_to_label, token_to_url = _scan_markets(

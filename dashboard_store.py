@@ -48,6 +48,10 @@ class DashboardStore:
         # Last manual action result message
         self._last_action_msg: str = ""
 
+        # Runtime-adjustable threshold (set by main.py on startup)
+        self._threshold: float = 10.0
+        self._pending_threshold: float | None = None
+
     # ------------------------------------------------------------------
     # Writers (called from the main loop thread)
     # ------------------------------------------------------------------
@@ -108,6 +112,29 @@ class DashboardStore:
     def set_action_msg(self, msg: str) -> None:
         with self._lock:
             self._last_action_msg = msg
+
+    def init_threshold(self, pct: float) -> None:
+        """Called once by main.py on startup to set initial threshold."""
+        with self._lock:
+            self._threshold = pct
+
+    def set_threshold(self, pct: float) -> None:
+        """Called by dashboard to request a runtime threshold change."""
+        with self._lock:
+            self._threshold = pct
+            self._pending_threshold = pct
+            self._force_cycle_flag.set()  # wake sleep immediately
+
+    def get_threshold(self) -> float:
+        with self._lock:
+            return self._threshold
+
+    def consume_threshold_change(self) -> float | None:
+        """Called by main loop — returns new threshold if changed, else None."""
+        with self._lock:
+            val = self._pending_threshold
+            self._pending_threshold = None
+            return val
 
     # ------------------------------------------------------------------
     # Trigger methods (called from Flask worker threads)
@@ -172,6 +199,7 @@ class DashboardStore:
                 "market_stats": [dict(v) for v in self._market_stats.values()],
                 "alert_feed": list(self._alert_feed),
                 "last_action_msg": self._last_action_msg,
+                "threshold": self._threshold,
             }
 
 
