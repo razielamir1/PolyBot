@@ -102,6 +102,7 @@ class DashboardStore:
                     {
                         "time": _now_iso(),
                         "label": a.get("label", token_id),
+                        "event_label": a.get("event_label", a.get("label", token_id)),
                         "token_id": token_id,
                         "pct_change": a["pct_change"],
                         "old_price": a["oldest_price"],

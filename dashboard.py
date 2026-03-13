@@ -526,9 +526,9 @@ _HTML = """<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>שעה (UTC)</th><th>שוק / אירוע</th><th>קפיצה</th><th>מחיר לפני</th><th>מחיר אחרי</th>
+          <th>שעה (UTC)</th><th>נושא</th><th>תשובה</th><th>קפיצה</th><th>מחיר לפני</th><th>מחיר אחרי</th>
         </tr></thead>
-        <tbody id="historyBody"><tr><td colspan="5" class="empty">אין היסטוריה עדיין.</td></tr></tbody>
+        <tbody id="historyBody"><tr><td colspan="6" class="empty">אין היסטוריה עדיין.</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -621,16 +621,20 @@ async function fetchStatus() {
 
     const hbody = document.getElementById('historyBody');
     if (!data.alert_feed.length) {
-      hbody.innerHTML = '<tr><td colspan="5" class="empty">אין היסטוריה עדיין.</td></tr>';
+      hbody.innerHTML = '<tr><td colspan="6" class="empty">אין היסטוריה עדיין.</td></tr>';
     } else {
-      hbody.innerHTML = data.alert_feed.map(a => `
-        <tr>
+      hbody.innerHTML = data.alert_feed.map(a => {
+        const ev = a.event_label || a.label;
+        const out = (a.label && a.label !== ev) ? a.label : '—';
+        return `<tr>
           <td class="mu">${a.time}</td>
-          <td class="lbl" title="${a.label}">${a.label}</td>
+          <td class="lbl" title="${ev}">${ev}</td>
+          <td class="lbl">${out}</td>
           <td class="up">+${a.pct_change.toFixed(2)}%</td>
           <td class="mono">${fmtPct(a.old_price)}</td>
           <td class="mono up">${fmtPct(a.new_price)}</td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     }
     if (data.last_action_msg) showMsg(data.last_action_msg);
   } catch(e) {
@@ -655,7 +659,7 @@ async function fetchFeed() {
       const el = document.createElement('div');
       el.className = 'fi';
       el.innerHTML = `
-        <span class="fi-lbl" title="${a.label}">${a.label}</span>
+        <span class="fi-lbl" title="${a.event_label || a.label}">${a.event_label || a.label}${(a.label && a.label !== (a.event_label || a.label)) ? ' — ' + a.label : ''}</span>
         <span class="fi-pct">+${a.pct_change.toFixed(2)}%</span>
         <span class="fi-meta">${fmtPct(a.old_price)} → ${fmtPct(a.new_price)}<br>${a.time}</span>`;
       feedDiv.insertBefore(el, feedDiv.firstChild);
