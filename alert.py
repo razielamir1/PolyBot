@@ -51,18 +51,19 @@ class TelegramAlerter:
         suppressed or failed.
         """
         token_id = alert["token_id"]
+        cooldown_key = alert.get("event_label") or alert.get("label") or token_id
         now = time.time()
 
-        # Cooldown check
-        last = self._last_alert.get(token_id, 0)
+        # Cooldown check (event-level: one alert per event per cooldown period)
+        last = self._last_alert.get(cooldown_key, 0)
         if now - last < self.cooldown_seconds:
-            logger.debug("Cooldown active for %s — skipping alert", token_id)
+            logger.debug("Cooldown active for %s — skipping alert", cooldown_key)
             return False
 
         text = self._format_message(alert)
         ok = self._send_message(text)
         if ok:
-            self._last_alert[token_id] = now
+            self._last_alert[cooldown_key] = now
         return ok
 
     def send_alerts(self, alerts: list[dict]) -> int:
