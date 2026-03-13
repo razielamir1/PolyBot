@@ -36,8 +36,10 @@ class TelegramAlerter:
         self.cooldown_seconds = cooldown_seconds
         self.session = session or requests.Session()
 
-        # {token_id: last_alert_timestamp}
+        # {cooldown_key: last_alert_timestamp}
         self._last_alert: dict[str, float] = {}
+        # {cooldown_key: price at last alert} — for price-anchor deduplication
+        self._last_alert_price: dict[str, float] = {}
 
     def send_test_message(self) -> bool:
         """Send a simple message to confirm the bot is connected."""
@@ -54,16 +56,28 @@ class TelegramAlerter:
         cooldown_key = alert.get("event_label") or alert.get("label") or token_id
         now = time.time()
 
-        # Cooldown check (event-level: one alert per event per cooldown period)
+        # Minimum time buffer (prevents burst within same cycle)
         last = self._last_alert.get(cooldown_key, 0)
         if now - last < self.cooldown_seconds:
             logger.debug("Cooldown active for %s — skipping alert", cooldown_key)
             return False
 
+        # Price anchor check: only alert if price moved enough from last alert price
+        current_price = alert["latest_price"]
+        threshold = alert.get("threshold_pct", 3.0)
+        last_price = self._last_alert_price.get(cooldown_key)
+        if last_price is not None:
+            movement = abs(current_price - last_price) * 100
+            if movement < threshold:
+                logger.debug("Price anchor: only %.2fpp from last alert (%.4f→%.4f) — skipping",
+                             movement, last_price, current_price)
+                return False
+
         text = self._format_message(alert)
         ok = self._send_message(text)
         if ok:
             self._last_alert[cooldown_key] = now
+            self._last_alert_price[cooldown_key] = current_price
         return ok
 
     def send_alerts(self, alerts: list[dict]) -> int:

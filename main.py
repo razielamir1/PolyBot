@@ -147,6 +147,7 @@ def main() -> None:
                         a["url"] = token_to_url.get(tid, "")
                         a["window_seconds"] = window_seconds
                         a["event_label"] = token_to_event_label.get(tid, a["label"])
+                        a["threshold_pct"] = threshold_pct
                         logger.info(f"🚀 SPIKE: {a['label']} (+{a['pct_change']}%)")
                     top_alerts = sorted(alerts, key=lambda x: abs(x["pct_change"]), reverse=True)[:max_alerts_cycle]
                     alerter.send_alerts(top_alerts)
