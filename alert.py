@@ -83,17 +83,21 @@ class TelegramAlerter:
         # Use more descriptive labels if available
         # Note: label (market title) should be passed in alert dict if possible
         label = alert.get("label", alert["token_id"])
+        event_label = alert.get("event_label", label)
         oldest = alert["oldest_price"]
         latest = alert["latest_price"]
-        
-        # Use HTML for better robustness against special characters in labels/IDs
+
         win_sec = alert.get("window_seconds", 300)
         win_label = f"{round(win_sec / 60)} min" if win_sec >= 60 else f"{int(win_sec)} sec"
         url = alert.get("url", "")
         link_line = f"\n<a href=\"{url}\">🔗 View on Polymarket</a>" if url else ""
+
+        # Show outcome line only when it differs from the event title
+        outcome_line = f"\n<b>Outcome:</b> {label}" if label != event_label else ""
         return (
             f"🚀 <b>Polymarket Price Alert</b>\n\n"
-            f"<b>Market:</b> {label}\n"
+            f"<b>Market:</b> {event_label}"
+            f"{outcome_line}\n"
             f"<b>Change:</b> <code>+{pct:.2f}%</code> in {win_label}\n"
             f"<b>Price:</b> <code>{oldest:.4f} → {latest:.4f}</code>"
             f"{link_line}"
