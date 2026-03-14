@@ -55,7 +55,7 @@ class TelegramAlerter:
         suppressed or failed.
         """
         token_id = alert["token_id"]
-        cooldown_key = alert.get("event_label") or alert.get("label") or token_id
+        cooldown_key = token_id
         now = time.time()
 
         # Mute check
