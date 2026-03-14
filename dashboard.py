@@ -625,6 +625,8 @@ _HTML = """<!DOCTYPE html>
     <span id="roleBadge" class="role-badge"></span>
     <a href="/analytics" id="analyticsLink" style="display:none">📊 אנליטיקס</a>
     <a href="/ai-chat" id="aiChatLink" style="display:none">🤖 AI Chat</a>
+    <a href="/watchlist">⭐ Watchlist</a>
+    <a href="/settings">⚙️ הגדרות</a>
     <a href="/admin" id="adminLink" style="display:none">🔧 ניהול</a>
     <a href="/logout">יציאה</a>
   </div>
@@ -662,8 +664,9 @@ _HTML = """<!DOCTYPE html>
           <th title="הסתברות הגבוהה ביותר מבין כל הטוקנים של האירוע הזה">מחיר גבוה ביותר באירוע (%)</th>
           <th title="הקפיצה הגדולה ביותר שנצפתה בחלון 5 דק׳">שינוי מקסימלי בחלון 5 דק׳</th>
           <th title="כמה התראות נשלחו מאז הפעלת הבוט">התראות שנשלחו לטלגרם</th>
+          <th title="הוסף ל-Watchlist">⭐</th>
         </tr></thead>
-        <tbody id="marketBody"><tr><td colspan="5" class="empty">ממתין...</td></tr></tbody>
+        <tbody id="marketBody"><tr><td colspan="6" class="empty">ממתין...</td></tr></tbody>
       </table>
     </div>
     <div class="pager">
@@ -694,6 +697,51 @@ const fmtChg = v => v == null
   : `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;
 
 let isAdmin = false;
+let watchlistTokens = new Set();
+let userKeywords = [], userMinPct = 0;
+
+async function loadMyWatchlist() {
+  try {
+    const r = await fetch('/api/watchlist');
+    if (r.ok) {
+      const items = await r.json();
+      watchlistTokens = new Set(items.map(i => i.token_id));
+    }
+  } catch(e) {}
+}
+
+async function loadMySettings() {
+  try {
+    const r = await fetch('/api/my-settings');
+    if (r.ok) {
+      const s = await r.json();
+      userKeywords = s.keywords ? s.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) : [];
+      userMinPct = parseFloat(s.min_pct) || 0;
+    }
+  } catch(e) {}
+}
+
+function matchesFilter(event_label, label, pct_change) {
+  if (userMinPct > 0 && pct_change != null && Math.abs(pct_change) < userMinPct) return false;
+  if (userKeywords.length === 0) return true;
+  const text = ((event_label || '') + ' ' + (label || '')).toLowerCase();
+  return userKeywords.some(k => text.includes(k));
+}
+
+async function toggleWatchlist(btn, tokenId, eventLabel, label) {
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/watchlist/toggle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token_id: tokenId, event_label: eventLabel, label: label})
+    });
+    const d = await r.json();
+    if (d.added) { watchlistTokens.add(tokenId); btn.textContent = '⭐'; btn.title = 'הסר מ-Watchlist'; }
+    else { watchlistTokens.delete(tokenId); btn.textContent = '☆'; btn.title = 'הוסף ל-Watchlist'; }
+  } catch(e) {}
+  btn.disabled = false;
+}
 
 function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi) {
   isAdmin = admin;
@@ -723,7 +771,7 @@ function groupByLabel(stats) {
     const ev = m.event_label || m.label;
     const out = (m.label && m.label !== ev) ? m.label : '—';
     const key = ev + '||' + out;
-    if (!map[key]) map[key] = { event_label: ev, label: out, prices: [], pct_changes: [], alert_count: 0 };
+    if (!map[key]) map[key] = { event_label: ev, label: out, prices: [], pct_changes: [], alert_count: 0, token_id: m.token_id || '' };
     map[key].prices.push(m.current_price);
     if (m.pct_change != null) map[key].pct_changes.push(m.pct_change);
     map[key].alert_count += m.alert_count;
@@ -734,28 +782,38 @@ function groupByLabel(stats) {
     max_price: g.prices.length ? Math.max(...g.prices) : null,
     max_pct: g.pct_changes.length ? Math.max(...g.pct_changes) : null,
     alert_count: g.alert_count,
+    token_id: g.token_id,
   })).sort((a,b) => (b.alert_count - a.alert_count) || a.event_label.localeCompare(b.event_label));
 }
 
 function renderMarketPage() {
-  const total = allGrouped.length;
+  const filtered = userKeywords.length > 0
+    ? allGrouped.filter(m => matchesFilter(m.event_label, m.label, m.max_pct))
+    : allGrouped;
+  const total = filtered.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   currentPage = Math.min(currentPage, pages);
-  const slice = allGrouped.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+  const slice = filtered.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
   document.getElementById('pageInfo').textContent = total ? `עמוד ${currentPage} מתוך ${pages}` : '—';
   document.getElementById('prevBtn').disabled = currentPage <= 1;
   document.getElementById('nextBtn').disabled = currentPage >= pages;
-  document.getElementById('mktBadge').textContent = total + ' שווקים';
+  document.getElementById('mktBadge').textContent = total + ' שווקים' + (userKeywords.length ? ' (מסונן)' : '');
   const tbody = document.getElementById('marketBody');
-  if (!slice.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">ממתין לנתונים...</td></tr>'; return; }
-  tbody.innerHTML = slice.map(m => `
-    <tr>
+  if (!slice.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">ממתין לנתונים...</td></tr>'; return; }
+  tbody.innerHTML = slice.map(m => {
+    const inWl = m.token_id && watchlistTokens.has(m.token_id);
+    const wlBtn = m.token_id ? `<button onclick="toggleWatchlist(this,'${m.token_id}','${(m.event_label||'').replace(/'/g,"\\'")}','${(m.label||'').replace(/'/g,"\\'")}'); event.stopPropagation();"
+      style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:.8"
+      title="${inWl ? 'הסר מ-Watchlist' : 'הוסף ל-Watchlist'}">${inWl ? '⭐' : '☆'}</button>` : '';
+    return `<tr>
       <td class="lbl" title="${m.event_label}">${m.event_label}</td>
       <td class="lbl">${m.label}</td>
       <td class="mono">${m.max_price != null ? fmtPct(m.max_price) : '—'}</td>
       <td>${fmtChg(m.max_pct)}</td>
       <td>${m.alert_count > 0 ? `<span class="badge badge-orange">${m.alert_count}</span>` : '<span class="mu">0</span>'}</td>
-    </tr>`).join('');
+      <td>${wlBtn}</td>
+    </tr>`;
+  }).join('');
 }
 
 function changePage(dir) { currentPage += dir; renderMarketPage(); }
@@ -783,10 +841,11 @@ async function fetchStatus() {
     renderMarketPage();
 
     const hbody = document.getElementById('historyBody');
-    if (!data.alert_feed.length) {
+    const filteredFeed = data.alert_feed.filter(a => matchesFilter(a.event_label, a.label, a.pct_change));
+    if (!filteredFeed.length) {
       hbody.innerHTML = '<tr><td colspan="7" class="empty">אין היסטוריה עדיין.</td></tr>';
     } else {
-      hbody.innerHTML = data.alert_feed.map(a => {
+      hbody.innerHTML = filteredFeed.map(a => {
         const ev = a.event_label || a.label;
         const out = (a.label && a.label !== ev) ? a.label : '—';
         const link = a.url ? `<a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:14px" title="פתח בפולימארקט">🔗</a>` : '';
@@ -886,6 +945,8 @@ async function muteEvent(btn, eventLabel, e) {
   } catch(e) { showMsg('שגיאת רשת'); }
 }
 
+loadMyWatchlist();
+loadMySettings();
 fetchStatus();
 fetchFeed();
 setInterval(fetchStatus, 10000);
@@ -1409,6 +1470,287 @@ document.getElementById('msgInput').addEventListener('input', function() {
 </html>"""
 
 
+_SETTINGS_HTML = """<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolyBot — הגדרות</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+        --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
+  header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+  header h1{font-size:16px;font-weight:600;flex:1;}
+  a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
+             border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
+  a.btn-back:hover{background:#21262d;}
+  .page{padding:20px;max-width:600px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px;}
+  h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;
+     letter-spacing:.5px;margin-bottom:14px;}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;}
+  input{width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);
+        border-radius:6px;color:var(--text);font-size:13px;margin-bottom:14px;}
+  input:focus{outline:none;border-color:var(--accent);}
+  .hint{font-size:11px;color:var(--muted);margin-top:-10px;margin-bottom:14px;}
+  .btn-save{padding:8px 22px;background:var(--accent);color:#0d1117;border:none;
+            border-radius:6px;font-weight:700;font-size:13px;cursor:pointer;}
+  .btn-save:hover{opacity:.9;}
+  .msg{padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:13px;}
+  .msg-ok{background:rgba(63,185,80,.1);border:1px solid var(--green);color:var(--green);}
+  .msg-err{background:rgba(248,81,73,.1);border:1px solid var(--red);color:var(--red);}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙️ הגדרות אישיות</h1>
+  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+</header>
+<div class="page">
+  <div id="msgBox"></div>
+  <div class="card">
+    <h2>פילטר התראות</h2>
+    <label>מילות מפתח (מופרדות בפסיק)</label>
+    <input type="text" id="kwInput" placeholder="לדוגמא: טראמפ, ביטקויין, איראן">
+    <p class="hint">רק התראות שמכילות לפחות מילה אחת מהרשימה יוצגו בדאשבורד. ריק = הצג הכל.</p>
+    <label>סף מינימלי להצגה (%)</label>
+    <input type="number" id="minPctInput" placeholder="0 = ברירת מחדל" min="0" max="100" step="0.5">
+    <p class="hint">הצג רק התראות עם קפיצה של לפחות X%. 0 = השתמש בהגדרת הבוט הגלובלית.</p>
+    <button class="btn-save" onclick="saveSettings()">שמור הגדרות</button>
+  </div>
+  <div class="card" style="font-size:12px;color:var(--muted);line-height:1.6">
+    <h2>הערות</h2>
+    <p>• הפילטרים חלים רק על <b>תצוגת הדאשבורד שלך</b> — לא על התראות הטלגרם.</p>
+    <p>• הגדרות נשמרות לחשבונך ומסונכרנות בכל כניסה.</p>
+    <p>• ה-Watchlist מאפשר לך לעקוב אחרי שווקים ספציפיים — נגיש דרך הכפתור ⭐ בטבלת השווקים.</p>
+  </div>
+</div>
+<script>
+async function loadSettings() {
+  const r = await fetch('/api/my-settings');
+  if (r.ok) {
+    const s = await r.json();
+    document.getElementById('kwInput').value = s.keywords || '';
+    document.getElementById('minPctInput').value = s.min_pct || '';
+  }
+}
+async function saveSettings() {
+  const keywords = document.getElementById('kwInput').value.trim();
+  const min_pct = parseFloat(document.getElementById('minPctInput').value) || 0;
+  const r = await fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({keywords, min_pct})
+  });
+  const d = await r.json();
+  const box = document.getElementById('msgBox');
+  box.innerHTML = `<div class="msg ${d.ok ? 'msg-ok' : 'msg-err'}">${d.ok ? '✅ הגדרות נשמרו בהצלחה' : '❌ ' + d.message}</div>`;
+  setTimeout(() => box.innerHTML = '', 4000);
+}
+loadSettings();
+</script>
+</body>
+</html>"""
+
+_WATCHLIST_HTML = """<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolyBot — Watchlist</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+        --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#f0883e;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
+  header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+  header h1{font-size:16px;font-weight:600;flex:1;}
+  a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
+             border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
+  a.btn-back:hover{background:#21262d;}
+  .page{display:flex;gap:16px;padding:16px 20px;height:calc(100vh - 53px);}
+  .sidebar{width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;}
+  .main{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;}
+  .card h2{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+  .wl-item{padding:10px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer;
+           background:var(--bg);margin-bottom:6px;transition:border-color .15s;display:flex;align-items:center;gap:8px;}
+  .wl-item:hover{border-color:var(--accent);}
+  .wl-item.active{border-color:var(--accent);background:rgba(88,166,255,.06);}
+  .wl-label{flex:1;overflow:hidden;}
+  .wl-ev{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wl-out{font-size:11px;color:var(--muted);margin-top:2px;}
+  .wl-rm{background:none;border:none;cursor:pointer;font-size:14px;opacity:.5;padding:0;flex-shrink:0;}
+  .wl-rm:hover{opacity:1;}
+  .price{font-size:12px;color:var(--accent);font-family:Consolas,monospace;}
+  .empty{color:var(--muted);padding:14px 0;text-align:center;font-size:13px;}
+  .chart-card{flex:1;display:flex;flex-direction:column;}
+  .chart-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .chart-title{font-size:15px;font-weight:600;flex:1;}
+  .chart-sub{font-size:12px;color:var(--muted);}
+  .chart-link{color:var(--accent);font-size:13px;text-decoration:none;}
+  .chart-link:hover{text-decoration:underline;}
+  .chart-wrap{flex:1;position:relative;min-height:300px;}
+  .placeholder{display:flex;align-items:center;justify-content:center;height:100%;
+               color:var(--muted);font-size:14px;border:1px dashed var(--border);border-radius:8px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>⭐ Watchlist שלי</h1>
+  <span id="refreshNote" style="font-size:11px;color:var(--muted)"></span>
+  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+</header>
+<div class="page">
+  <div class="sidebar">
+    <div class="card" style="flex:1">
+      <h2>שווקים במעקב <span id="countBadge"></span></h2>
+      <div id="wlList"><div class="empty">טוען...</div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="card chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="chartTitle">בחר שוק מהרשימה</div>
+          <div class="chart-sub" id="chartSub"></div>
+        </div>
+        <a class="chart-link" id="chartLink" href="#" target="_blank" rel="noopener" style="display:none">🔗 פתח בפולימארקט</a>
+      </div>
+      <div class="chart-wrap">
+        <div class="placeholder" id="chartPlaceholder">← בחר שוק מהרשימה כדי לראות גרף מחיר</div>
+        <canvas id="priceChart" style="display:none"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const fmtPct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+let wlItems = [];
+let selectedToken = null;
+let chartInstance = null;
+
+async function loadWatchlist() {
+  try {
+    const r = await fetch('/api/watchlist');
+    if (r.status === 401) { window.location.href = '/login'; return; }
+    wlItems = await r.json();
+    renderList();
+    document.getElementById('countBadge').textContent = wlItems.length || '';
+    document.getElementById('refreshNote').textContent = 'עדכון: ' + new Date().toLocaleTimeString('he-IL');
+    if (selectedToken) loadChart(selectedToken);
+  } catch(e) {}
+}
+
+function renderList() {
+  const el = document.getElementById('wlList');
+  if (!wlItems.length) {
+    el.innerHTML = '<div class="empty">הWatchlist ריק. הוסף שווקים דרך הטבלה בדאשבורד.</div>';
+    document.getElementById('countBadge').textContent = '';
+    return;
+  }
+  el.innerHTML = wlItems.map(m => {
+    const active = m.token_id === selectedToken ? ' active' : '';
+    return `<div class="wl-item${active}" onclick="selectMarket('${m.token_id}')">
+      <div class="wl-label">
+        <div class="wl-ev" title="${m.event_label}">${m.event_label || m.token_id}</div>
+        ${m.label ? `<div class="wl-out">${m.label}</div>` : ''}
+      </div>
+      <button class="wl-rm" onclick="removeFromWl(event,'${m.token_id}')" title="הסר מ-Watchlist">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function selectMarket(tokenId) {
+  selectedToken = tokenId;
+  renderList();
+  loadChart(tokenId);
+}
+
+async function removeFromWl(e, tokenId) {
+  e.stopPropagation();
+  await fetch('/api/watchlist/toggle', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({token_id: tokenId})
+  });
+  if (selectedToken === tokenId) { selectedToken = null; resetChart(); }
+  loadWatchlist();
+}
+
+async function loadChart(tokenId) {
+  try {
+    const r = await fetch('/api/watchlist-chart/' + tokenId);
+    if (!r.ok) {
+      showNoData();
+      return;
+    }
+    const data = await r.json();
+    if (!data.history || !data.history.length) { showNoData(); return; }
+    renderChart(data);
+  } catch(e) { showNoData(); }
+}
+
+function showNoData() {
+  document.getElementById('chartPlaceholder').textContent = 'אין עדיין נתוני מחיר. ממתין לנתונים...';
+  document.getElementById('chartPlaceholder').style.display = 'flex';
+  document.getElementById('priceChart').style.display = 'none';
+}
+
+function resetChart() {
+  document.getElementById('chartTitle').textContent = 'בחר שוק מהרשימה';
+  document.getElementById('chartSub').textContent = '';
+  document.getElementById('chartLink').style.display = 'none';
+  document.getElementById('chartPlaceholder').textContent = '← בחר שוק מהרשימה כדי לראות גרף מחיר';
+  document.getElementById('chartPlaceholder').style.display = 'flex';
+  document.getElementById('priceChart').style.display = 'none';
+}
+
+function renderChart(data) {
+  const ev = data.event_label || data.label;
+  const out = (data.label && data.label !== ev) ? data.label : null;
+  document.getElementById('chartTitle').textContent = ev;
+  document.getElementById('chartSub').textContent = out || '';
+  const linkEl = document.getElementById('chartLink');
+  if (data.url) { linkEl.href = data.url; linkEl.style.display = 'inline'; }
+  else { linkEl.style.display = 'none'; }
+  document.getElementById('chartPlaceholder').style.display = 'none';
+  const canvas = document.getElementById('priceChart');
+  canvas.style.display = 'block';
+  const history = data.history || [];
+  const alertSet = new Set(data.alert_times || []);
+  const labels = history.map(h => h.t);
+  const prices = history.map(h => +(h.p * 100).toFixed(2));
+  const pointRadii = labels.map(t => alertSet.has(t) ? 6 : 2);
+  const pointColors = labels.map(t => alertSet.has(t) ? '#f85149' : '#58a6ff');
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'מחיר (%)', data: prices,
+      borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.08)',
+      fill: true, tension: 0.3, pointRadius: pointRadii,
+      pointBackgroundColor: pointColors, pointBorderColor: pointColors, borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' + (alertSet.has(labels[ctx.dataIndex]) ? ' 🔔' : '') } } },
+      scales: {
+        x: { ticks: { color: '#8b949e', maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', callback: v => v + '%' }, grid: { color: '#21262d' }, min: 0, max: 100 }
+      }
+    }
+  });
+}
+
+loadWatchlist();
+setInterval(loadWatchlist, 30000);
+</script>
+</body>
+</html>"""
+
+
 @app.route("/ai-chat")
 @login_required
 @ai_required
@@ -1428,6 +1770,93 @@ def api_ai_chat():
     market_context = store.get_hot_markets()
     reply = ai_client.chat_with_markets(message, market_context)
     return jsonify({"reply": reply})
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+@app.route("/settings")
+@login_required
+def settings_page():
+    return _SETTINGS_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/my-settings")
+@login_required
+def api_my_settings():
+    prefs = db.get_user_preferences(current_user.id)
+    return jsonify(prefs)
+
+
+@app.route("/api/settings", methods=["POST"])
+@login_required
+def api_save_settings():
+    data = request.get_json(force=True, silent=True) or {}
+    keywords = (data.get("keywords") or "").strip()
+    try:
+        min_pct = max(0.0, float(data.get("min_pct") or 0))
+    except (ValueError, TypeError):
+        min_pct = 0.0
+    db.set_user_preferences(current_user.id, keywords, min_pct)
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Watchlist
+# ---------------------------------------------------------------------------
+
+@app.route("/watchlist")
+@login_required
+def watchlist_page():
+    return _WATCHLIST_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/watchlist")
+@login_required
+def api_get_watchlist():
+    items = db.get_watchlist(current_user.id)
+    # Enrich with live price from store
+    hot = {m["token_id"]: m for m in store.get_hot_markets()}
+    for item in items:
+        tid = item["token_id"]
+        if tid in hot:
+            item["current_price"] = hot[tid].get("current_price")
+            item["alert_count"] = hot[tid].get("alert_count", 0)
+        else:
+            item["current_price"] = None
+            item["alert_count"] = 0
+    return jsonify(items)
+
+
+@app.route("/api/watchlist/toggle", methods=["POST"])
+@login_required
+def api_watchlist_toggle():
+    data = request.get_json(force=True, silent=True) or {}
+    token_id = (data.get("token_id") or "").strip()
+    if not token_id:
+        return jsonify({"ok": False, "message": "חסר token_id"}), 400
+    event_label = (data.get("event_label") or "").strip()
+    label = (data.get("label") or "").strip()
+    result = db.toggle_watchlist(current_user.id, token_id, event_label, label)
+    if result["added"]:
+        # Start price tracking even if this market hasn't alerted yet
+        store.add_watch_token(token_id)
+    return jsonify({"ok": True, **result})
+
+
+@app.route("/api/watchlist-chart/<token_id>")
+@login_required
+def api_watchlist_chart(token_id):
+    """Chart data for a watchlisted token — no analytics permission required."""
+    # Verify token is in this user's watchlist
+    wl = db.get_watchlist(current_user.id)
+    if not any(item["token_id"] == token_id for item in wl):
+        return jsonify({"ok": False, "message": "Not in watchlist"}), 403
+    data = store.get_chart_data(token_id)
+    if data is None:
+        return jsonify({"ok": False, "history": [], "alert_times": []}), 404
+    return jsonify(data)
 
 
 # ---------------------------------------------------------------------------

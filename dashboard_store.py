@@ -283,12 +283,17 @@ class DashboardStore:
                 "alert_times": alert_times,
             }
 
+    def add_watch_token(self, token_id: str) -> None:
+        """Start tracking price history for a watchlisted token that hasn't alerted yet."""
+        with self._lock:
+            self._watched_tokens.add(token_id)
+
     def snapshot(self) -> dict:
         """Return a serialisable copy of all dashboard data."""
         with self._lock:
             return {
                 "bot_status": dict(self._bot_status),
-                "market_stats": [dict(v) for v in self._market_stats.values()],
+                "market_stats": [{"token_id": k, **dict(v)} for k, v in self._market_stats.items()],
                 "alert_feed": list(self._alert_feed),
                 "last_action_msg": self._last_action_msg,
                 "threshold": self._threshold,
