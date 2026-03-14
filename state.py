@@ -109,6 +109,7 @@ class StateManager:
                         "pct_change": round(pct, 2),
                         "oldest_price": window._data[0][1],
                         "latest_price": price,
+                        "window_seconds": self.window_seconds,
                     }
                 )
         return alerts

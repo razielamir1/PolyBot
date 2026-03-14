@@ -7,6 +7,8 @@ per-token cooldown to prevent flooding.
 
 import logging
 import time
+from datetime import datetime, timezone
+
 import requests
 
 from dashboard_store import store as _store
@@ -101,8 +103,6 @@ class TelegramAlerter:
     @staticmethod
     def _format_message(alert: dict) -> str:
         pct = alert["pct_change"]
-        # Use more descriptive labels if available
-        # Note: label (market title) should be passed in alert dict if possible
         label = alert.get("label", alert["token_id"])
         event_label = alert.get("event_label", label)
         oldest = alert["oldest_price"]
@@ -110,17 +110,57 @@ class TelegramAlerter:
 
         win_sec = alert.get("window_seconds", 300)
         win_label = f"{round(win_sec / 60)} min" if win_sec >= 60 else f"{int(win_sec)} sec"
+
+        # Score badge
+        score = alert.get("score", 0)
+        badge = "⚡ חד" if score >= 20 else ("📈 חזק" if score >= 10 else "📊 מתון")
+
+        # Market volume context
+        mkt_vol = alert.get("mkt_volume", 0)
+        if mkt_vol >= 1_000_000:
+            vol_str = f"${mkt_vol / 1_000_000:.1f}M"
+        elif mkt_vol >= 1_000:
+            vol_str = f"${mkt_vol / 1_000:.0f}K"
+        else:
+            vol_str = ""
+        vol_line = f"\n💰 <b>Volume:</b> {vol_str}" if vol_str else ""
+
+        # Days to close
+        days_line = ""
+        end_date = alert.get("end_date", "")
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                d = (end_dt - datetime.now(timezone.utc)).days
+                if d > 1:
+                    days_line = f"\n📅 <b>נסגר בעוד:</b> {d} ימים"
+                elif d == 1:
+                    days_line = "\n📅 <b>נסגר מחר</b>"
+                elif d == 0:
+                    days_line = "\n📅 <b>נסגר היום</b>"
+            except Exception:
+                pass
+
+        # Related markets
+        related = alert.get("related", [])
+        related_line = ""
+        if related:
+            parts = [f"{r.get('label', r['token_id'][:8])} {'+' if r['pct_change'] >= 0 else ''}{r['pct_change']:.1f}%" for r in related]
+            related_line = f"\n📌 <b>גם זזו:</b> {' · '.join(parts)}"
+
         url = alert.get("url", "")
         link_line = f"\n<a href=\"{url}\">🔗 View on Polymarket</a>" if url else ""
 
-        # Show outcome line only when it differs from the event title
         outcome_line = f"\n<b>Outcome:</b> {label}" if label != event_label else ""
         return (
-            f"🚀 <b>Polymarket Price Alert</b>\n\n"
+            f"🚀 <b>Polymarket Price Alert</b> [{badge}]\n\n"
             f"<b>Market:</b> {event_label}"
             f"{outcome_line}\n"
             f"<b>Change:</b> <code>+{pct:.2f}%</code> in {win_label}\n"
             f"<b>Price:</b> <code>{oldest:.4f} → {latest:.4f}</code>"
+            f"{vol_line}"
+            f"{days_line}"
+            f"{related_line}"
             f"{link_line}"
         )
 

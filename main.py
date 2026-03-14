@@ -36,15 +36,16 @@ def _fmt_volume(vol: float) -> str:
     return f"${vol:,.0f}"
 
 
-def _scan_markets(fetcher, fetch_limit, min_volume, top_n):
-    """Fetch events and extract token IDs. Returns (events, token_ids, token_to_label, token_to_url, token_to_event_label)."""
+def _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume=0.0):
+    """Fetch events and extract token IDs."""
     events = fetcher.fetch_politics_events(
         limit=fetch_limit,
         min_volume=min_volume,
         top_n=top_n,
     )
-    token_ids, token_to_label, token_to_url, token_to_event_label = fetcher.extract_token_ids(events)
-    return events, token_ids, token_to_label, token_to_url, token_to_event_label
+    token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+        fetcher.extract_token_ids(events, min_market_volume=min_market_volume)
+    return events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date
 
 
 def main() -> None:
@@ -55,12 +56,12 @@ def main() -> None:
     chat_id          = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     poll_interval    = float(os.getenv("POLL_INTERVAL_SECONDS", "30"))
     threshold_pct    = float(os.getenv("PRICE_CHANGE_THRESHOLD_PCT", "10.0"))
-    window_seconds   = float(os.getenv("ROLLING_WINDOW_SECONDS", "300"))
     min_volume       = float(os.getenv("MIN_VOLUME_USD", "100000"))
     top_n            = int(os.getenv("TOP_N_MARKETS", "50"))
-    alert_cooldown   = float(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
-    max_alerts_cycle = int(os.getenv("MAX_ALERTS_PER_CYCLE", "3"))
-    fetch_limit      = int(os.getenv("FETCH_LIMIT", "100"))
+    alert_cooldown      = float(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
+    max_alerts_cycle    = int(os.getenv("MAX_ALERTS_PER_CYCLE", "3"))
+    fetch_limit         = int(os.getenv("FETCH_LIMIT", "100"))
+    min_market_volume   = float(os.getenv("MIN_MARKET_VOLUME_USD", "5000"))
     fetch_workers    = int(os.getenv("FETCH_WORKERS", "50"))
     dashboard_enabled = os.getenv("DASHBOARD_ENABLED", "false").lower() == "true"
     # Railway assigns PORT; fall back to DASHBOARD_PORT for local use
@@ -72,7 +73,13 @@ def main() -> None:
 
     # ── Initialise modules ──────────────────────────────────────────
     fetcher = Fetcher(workers=fetch_workers)
-    state   = StateManager(window_seconds=window_seconds, threshold_pct=threshold_pct)
+    def _make_states(thr):
+        return [
+            StateManager(window_seconds=60,  threshold_pct=thr),
+            StateManager(window_seconds=300, threshold_pct=thr),
+            StateManager(window_seconds=900, threshold_pct=thr),
+        ]
+    states  = _make_states(threshold_pct)
     alerter = TelegramAlerter(bot_token=bot_token, chat_id=chat_id, cooldown_seconds=alert_cooldown)
 
     # ── Dashboard (optional) ────────────────────────────────────────
@@ -93,7 +100,8 @@ def main() -> None:
 
     # ── Discover high-volume Politics events ────────────────────────
     logger.info(f"Scanning for Politics events (Vol > {_fmt_volume(min_volume)})...")
-    events, token_ids, token_to_label, token_to_url, token_to_event_label = _scan_markets(fetcher, fetch_limit, min_volume, top_n)
+    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+        _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume)
 
     if not token_ids:
         logger.error("No tracked tokens found. Shutdown.")
@@ -124,14 +132,13 @@ def main() -> None:
                 new_thresh = store.consume_threshold_change()
                 if new_thresh is not None:
                     threshold_pct = new_thresh
-                    state = StateManager(window_seconds=window_seconds, threshold_pct=threshold_pct)
+                    states = _make_states(threshold_pct)
                     logger.info(f"Threshold updated to {threshold_pct}%")
                 if store.consume_refresh_request():
                     logger.info("Dashboard triggered market refresh — re-scanning...")
-                    events, token_ids, token_to_label, token_to_url, token_to_event_label = _scan_markets(
-                        fetcher, fetch_limit, min_volume, top_n
-                    )
-                    state = StateManager(window_seconds=window_seconds, threshold_pct=threshold_pct)
+                    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+                        _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume)
+                    states = _make_states(threshold_pct)
                     logger.info(f"Refresh complete: {len(token_ids)} tokens tracked.")
                     store.set_tokens_tracked(len(token_ids))
                     store.set_action_msg(f"רענון הושלם ✅ — {len(token_ids)} טוקנים פעילים")
@@ -139,17 +146,37 @@ def main() -> None:
             prices = fetcher.fetch_midpoints(token_ids)
 
             if prices:
-                alerts = state.update(prices)
+                # Merge alerts from all windows — keep best score per token
+                best: dict[str, dict] = {}
+                for sm in states:
+                    for a in sm.update(prices):
+                        tid = a["token_id"]
+                        score = abs(a["pct_change"]) * (300.0 / a["window_seconds"])
+                        a["score"] = round(score, 2)
+                        if tid not in best or a["score"] > best[tid]["score"]:
+                            best[tid] = a
+                alerts = list(best.values())
+
                 if alerts:
+                    # Enrich alerts with metadata
                     for a in alerts:
                         tid = a["token_id"]
-                        a["label"] = token_to_label.get(tid, "Unknown")
-                        a["url"] = token_to_url.get(tid, "")
-                        a["window_seconds"] = window_seconds
-                        a["event_label"] = token_to_event_label.get(tid, a["label"])
+                        a["label"]        = token_to_label.get(tid, "Unknown")
+                        a["url"]          = token_to_url.get(tid, "")
+                        a["event_label"]  = token_to_event_label.get(tid, a["label"])
                         a["threshold_pct"] = threshold_pct
-                        logger.info(f"🚀 SPIKE: {a['label']} (+{a['pct_change']}%)")
-                    top_alerts = sorted(alerts, key=lambda x: abs(x["pct_change"]), reverse=True)[:max_alerts_cycle]
+                        a["mkt_volume"]   = token_to_mkt_volume.get(tid, 0)
+                        a["end_date"]     = token_to_end_date.get(tid, "")
+                        logger.info(f"🚀 SPIKE: {a['label']} (+{a['pct_change']}% / {a['window_seconds']}s / score={a['score']})")
+
+                    # Related markets: other alerts from same event in this cycle
+                    event_alerts: dict[str, list] = {}
+                    for a in alerts:
+                        event_alerts.setdefault(a["event_label"], []).append(a)
+                    for a in alerts:
+                        a["related"] = [x for x in event_alerts[a["event_label"]] if x["token_id"] != a["token_id"]][:3]
+
+                    top_alerts = sorted(alerts, key=lambda x: x["score"], reverse=True)[:max_alerts_cycle]
                     alerter.send_alerts(top_alerts)
                 else:
                     logger.info(f"Cycle {cycle}: {len(prices)} prices - No spikes.")

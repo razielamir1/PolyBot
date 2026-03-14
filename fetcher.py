@@ -134,12 +134,15 @@ class Fetcher:
     def extract_token_ids(
         self,
         events: list[dict[str, Any]],
-    ) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str]]:
+        min_market_volume: float = 0.0,
+    ) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str], dict[str, float], dict[str, str]]:
         """Extract CLOB token IDs from the child markets of each event."""
         token_ids: list[str] = []
         token_to_label: dict[str, str] = {}
         token_to_url: dict[str, str] = {}
         token_to_event_label: dict[str, str] = {}
+        token_to_mkt_volume: dict[str, float] = {}
+        token_to_end_date: dict[str, str] = {}
 
         for event in events:
             title = event.get("title", "Unknown event")
@@ -150,6 +153,11 @@ class Fetcher:
                 continue
 
             for market in markets:
+                # Filter low-liquidity markets
+                market_vol = float(market.get("volume", 0) or 0)
+                if market_vol < min_market_volume:
+                    continue
+
                 clob_ids = market.get("clobTokenIds")
                 if clob_ids:
                     if isinstance(clob_ids, str):
@@ -159,6 +167,7 @@ class Fetcher:
                             continue
                     if isinstance(clob_ids, list):
                         market_label = market.get("groupItemTitle") or market.get("question") or title
+                        end_date = market.get("endDate", "") or ""
                         yn = ["Yes", "No"] if len(clob_ids) == 2 else [None] * len(clob_ids)
                         for i, tid in enumerate(clob_ids):
                             tid_str = str(tid)
@@ -167,6 +176,8 @@ class Fetcher:
                             token_to_label[tid_str] = market_label + suffix
                             token_to_url[tid_str] = url
                             token_to_event_label[tid_str] = title
+                            token_to_mkt_volume[tid_str] = market_vol
+                            token_to_end_date[tid_str] = end_date
 
         seen: set[str] = set()
         unique: list[str] = []
@@ -174,7 +185,7 @@ class Fetcher:
             if tid not in seen:
                 seen.add(tid)
                 unique.append(tid)
-        return unique, token_to_label, token_to_url, token_to_event_label
+        return unique, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date
 
     # ------------------------------------------------------------------
     # Price fetching (CLOB API)
