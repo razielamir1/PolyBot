@@ -33,6 +33,10 @@ def init_db() -> None:
             con.execute("ALTER TABLE users ADD COLUMN analytics_enabled INTEGER DEFAULT 0")
         except Exception:
             pass  # column already exists
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN ai_enabled INTEGER DEFAULT 0")
+        except Exception:
+            pass  # column already exists
         con.execute("""
             CREATE TABLE IF NOT EXISTS muted_events (
                 event_label  TEXT PRIMARY KEY,
@@ -82,7 +86,7 @@ def create_user(email: str, password: str, role: str = "viewer") -> bool:
 def get_user_by_email(email: str) -> dict | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash, role FROM users WHERE email = ?",
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
     return dict(row) if row else None
@@ -91,7 +95,7 @@ def get_user_by_email(email: str) -> dict | None:
 def get_user_by_id(user_id: int) -> dict | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash, role FROM users WHERE id = ?",
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
@@ -100,9 +104,18 @@ def get_user_by_id(user_id: int) -> dict | None:
 def get_all_users() -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT id, email, role, created_at, analytics_enabled FROM users ORDER BY id"
+            "SELECT id, email, role, created_at, analytics_enabled, ai_enabled FROM users ORDER BY id"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_user_ai(user_id: int, enabled: bool) -> None:
+    with _conn() as con:
+        con.execute(
+            "UPDATE users SET ai_enabled = ? WHERE id = ?",
+            (1 if enabled else 0, user_id),
+        )
+        con.commit()
 
 
 def update_user_analytics(user_id: int, enabled: bool) -> None:

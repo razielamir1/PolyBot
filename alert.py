@@ -9,9 +9,18 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import os
+
 import requests
 
 from dashboard_store import store as _store
+
+# Import AI client lazily so the bot works without GEMINI_API_KEY
+try:
+    import ai_client as _ai
+    _AI_AVAILABLE = True
+except ImportError:
+    _AI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +91,14 @@ class TelegramAlerter:
                              movement, last_price, current_price)
                 return False
 
-        text = self._format_message(alert)
+        ai_summary = ""
+        if _AI_AVAILABLE and os.getenv("AI_ALERT_SUMMARY", "true").lower() == "true":
+            try:
+                ai_summary = _ai.generate_alert_summary(alert)
+            except Exception:
+                pass
+
+        text = self._format_message(alert, ai_summary=ai_summary)
         ok = self._send_message(text)
         if ok:
             self._last_alert[cooldown_key] = now
@@ -101,7 +117,7 @@ class TelegramAlerter:
     # Internal helpers
     # ------------------------------------------------------------------
     @staticmethod
-    def _format_message(alert: dict) -> str:
+    def _format_message(alert: dict, ai_summary: str = "") -> str:
         pct = alert["pct_change"]
         label = alert.get("label", alert["token_id"])
         event_label = alert.get("event_label", label)
@@ -150,6 +166,7 @@ class TelegramAlerter:
 
         url = alert.get("url", "")
         link_line = f"\n<a href=\"{url}\">🔗 View on Polymarket</a>" if url else ""
+        ai_line = f"\n\n💡 <i>{ai_summary}</i>" if ai_summary else ""
 
         outcome_line = f"\n<b>Outcome:</b> {label}" if label != event_label else ""
         return (
@@ -161,6 +178,7 @@ class TelegramAlerter:
             f"{vol_line}"
             f"{days_line}"
             f"{related_line}"
+            f"{ai_line}"
             f"{link_line}"
         )
 

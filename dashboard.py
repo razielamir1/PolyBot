@@ -19,6 +19,10 @@ Routes:
   GET      /analytics          → Analytics dashboard (admin or analytics_enabled)
   GET      /api/hot-markets    → Hot markets list (admin or analytics_enabled)
   GET      /api/chart/<token_id> → Price history for one token (admin or analytics_enabled)
+  GET      /ai-chat            → AI chat page (admin or ai_enabled)
+  POST     /api/ai-chat        → AI chat API (admin or ai_enabled)
+  POST     /api/admin/ai-command → Natural language admin commands (admin only)
+  POST     /admin/users/<id>/ai  → Toggle AI access (admin only)
 """
 
 import logging
@@ -61,12 +65,16 @@ class User(UserMixin):
         self.email = data["email"]
         self.role = data["role"]
         self.analytics_enabled = bool(data.get("analytics_enabled", 0))
+        self.ai_enabled = bool(data.get("ai_enabled", 0))
 
     def is_admin(self) -> bool:
         return self.role == "admin"
 
     def can_analytics(self) -> bool:
         return self.role == "admin" or self.analytics_enabled
+
+    def can_ai(self) -> bool:
+        return self.role == "admin" or self.ai_enabled
 
 
 @login_manager.user_loader
@@ -92,6 +100,17 @@ def analytics_required(f):
         if not current_user.is_authenticated or not current_user.can_analytics():
             if request.is_json or request.path.startswith("/api/"):
                 return jsonify({"ok": False, "message": "Analytics access required"}), 403
+            return redirect(url_for("index"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def ai_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.can_ai():
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify({"ok": False, "message": "AI access required"}), 403
             return redirect(url_for("index"))
         return f(*args, **kwargs)
     return decorated
@@ -263,7 +282,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
     <h2>משתמשים קיימים ({{ users|length }})</h2>
     <table>
       <thead><tr>
-        <th>אימייל</th><th>תפקיד</th><th>אנליטיקס</th><th>נוצר</th><th>פעולות</th>
+        <th>אימייל</th><th>תפקיד</th><th>אנליטיקס</th><th>AI Chat</th><th>נוצר</th><th>פעולות</th>
       </tr></thead>
       <tbody>
       {% for u in users %}
@@ -280,6 +299,17 @@ _ADMIN_HTML = """<!DOCTYPE html>
             <form method="POST" action="/admin/users/{{ u.id }}/analytics" style="display:inline">
               <button type="submit" class="btn {% if u.analytics_enabled %}btn-green{% endif %}" style="min-width:60px">
                 {% if u.analytics_enabled %}✓ מופעל{% else %}כבוי{% endif %}
+              </button>
+            </form>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.role == 'admin' %}
+            <span style="color:var(--muted);font-size:12px">תמיד</span>
+          {% else %}
+            <form method="POST" action="/admin/users/{{ u.id }}/ai" style="display:inline">
+              <button type="submit" class="btn {% if u.ai_enabled %}btn-green{% endif %}" style="min-width:60px">
+                {% if u.ai_enabled %}✓ מופעל{% else %}כבוי{% endif %}
               </button>
             </form>
           {% endif %}
@@ -307,6 +337,19 @@ _ADMIN_HTML = """<!DOCTYPE html>
       </tbody>
     </table>
   </div>
+  <!-- AI Admin command -->
+  <div class="card">
+    <h2>🤖 פקודת AI לניהול</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      הקלד פקודה בשפה חופשית — לדוגמא: "תוריד ל-user@example.com את ה-AI" / "תן לuser@example.com גישת אנליטיקס"
+    </p>
+    <div id="aiCmdResult" style="display:none;padding:10px;border-radius:6px;margin-bottom:10px;font-size:13px;"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="aiCmdInput" placeholder="הקלד פקודה..." style="flex:1;min-width:200px">
+      <button class="btn-submit" id="aiCmdBtn" onclick="runAiCommand()">🤖 הפעל</button>
+    </div>
+  </div>
+
   <!-- Muted events -->
   <div class="card">
     <h2>אירועים מושתקים</h2>
@@ -349,6 +392,41 @@ async function adminUnmute(btn, label) {
   loadMuted();
 }
 loadMuted();
+
+async function runAiCommand() {
+  const inp = document.getElementById('aiCmdInput');
+  const cmd = inp.value.trim();
+  if (!cmd) return;
+  const btn = document.getElementById('aiCmdBtn');
+  btn.disabled = true; btn.textContent = '⏳ מעבד...';
+  const res = document.getElementById('aiCmdResult');
+  res.style.display = 'none';
+  try {
+    const r = await fetch('/api/admin/ai-command', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command: cmd})
+    });
+    const d = await r.json();
+    res.style.display = 'block';
+    if (d.ok) {
+      res.style.background = 'rgba(63,185,80,.1)';
+      res.style.border = '1px solid var(--green)';
+      res.style.color = 'var(--green)';
+      res.textContent = '✅ ' + (d.explanation || d.message);
+      inp.value = '';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      res.style.background = 'rgba(248,81,73,.1)';
+      res.style.border = '1px solid var(--red)';
+      res.style.color = 'var(--red)';
+      res.textContent = '❌ ' + (d.explanation || d.message || d.error || 'שגיאה');
+    }
+  } catch(e) {
+    res.style.display = 'block';
+    res.textContent = 'שגיאת רשת';
+  }
+  btn.disabled = false; btn.textContent = '🤖 הפעל';
+}
 </script>
 </body>
 </html>"""
@@ -546,6 +624,7 @@ _HTML = """<!DOCTYPE html>
     <span id="userEmail" style="color:var(--text)"></span>
     <span id="roleBadge" class="role-badge"></span>
     <a href="/analytics" id="analyticsLink" style="display:none">📊 אנליטיקס</a>
+    <a href="/ai-chat" id="aiChatLink" style="display:none">🤖 AI Chat</a>
     <a href="/admin" id="adminLink" style="display:none">🔧 ניהול</a>
     <a href="/logout">יציאה</a>
   </div>
@@ -616,7 +695,7 @@ const fmtChg = v => v == null
 
 let isAdmin = false;
 
-function applyAuthUI(admin, email, role, threshold, canAnalytics) {
+function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi) {
   isAdmin = admin;
   document.getElementById('userEmail').textContent = email;
   const rb = document.getElementById('roleBadge');
@@ -629,6 +708,9 @@ function applyAuthUI(admin, email, role, threshold, canAnalytics) {
   }
   if (canAnalytics) {
     document.getElementById('analyticsLink').style.display = 'inline';
+  }
+  if (canAi) {
+    document.getElementById('aiChatLink').style.display = 'inline';
   }
 }
 
@@ -692,7 +774,7 @@ async function fetchStatus() {
     document.getElementById('last-refresh').textContent = 'רענון: ' + new Date().toLocaleTimeString('he-IL');
 
     if (firstLoad) {
-      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics);
+      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics, data.can_ai);
       firstLoad = false;
     }
 
@@ -831,6 +913,7 @@ def api_status():
     data["user_email"] = current_user.email
     data["user_role"] = current_user.role
     data["can_analytics"] = current_user.can_analytics()
+    data["can_ai"] = current_user.can_ai()
     return jsonify(data)
 
 
@@ -922,6 +1005,59 @@ def admin_toggle_analytics(uid):
     db.update_user_analytics(uid, new_val)
     state = "מופעל" if new_val else "כבוי"
     return redirect(url_for("admin", msg=f"גישת אנליטיקס {state} למשתמש {user['email']}"))
+
+
+@app.route("/admin/users/<int:uid>/ai", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_ai(uid):
+    user = db.get_user_by_id(uid)
+    if not user:
+        return redirect(url_for("admin", msg="משתמש לא נמצא", cls="msg-err"))
+    new_val = not bool(user.get("ai_enabled", 0))
+    db.update_user_ai(uid, new_val)
+    state = "מופעל" if new_val else "כבוי"
+    return redirect(url_for("admin", msg=f"גישת AI {state} למשתמש {user['email']}"))
+
+
+@app.route("/api/admin/ai-command", methods=["POST"])
+@login_required
+@admin_required
+def api_admin_ai_command():
+    import ai_client
+    data = request.get_json(force=True, silent=True) or {}
+    command = (data.get("command") or "").strip()
+    if not command:
+        return jsonify({"ok": False, "message": "חסרה פקודה"}), 400
+
+    users = db.get_all_users()
+    result = ai_client.parse_admin_command(command, users)
+
+    if "error" in result:
+        return jsonify({"ok": False, "explanation": result["error"]})
+
+    action = result.get("action", "unknown")
+    user_id = result.get("user_id")
+    value = result.get("value")
+    explanation = result.get("explanation", "")
+
+    if action == "unknown" or user_id is None:
+        return jsonify({"ok": False, "explanation": explanation or "לא הצלחתי להבין את הפקודה"})
+
+    if action == "toggle_analytics":
+        db.update_user_analytics(int(user_id), bool(value))
+    elif action == "toggle_ai":
+        db.update_user_ai(int(user_id), bool(value))
+    elif action == "toggle_role":
+        db.update_user_role(int(user_id), str(value))
+    elif action == "delete_user":
+        if int(user_id) == current_user.id:
+            return jsonify({"ok": False, "explanation": "אי אפשר למחוק את עצמך"})
+        db.delete_user(int(user_id))
+    else:
+        return jsonify({"ok": False, "explanation": f"פעולה לא מוכרת: {action}"})
+
+    return jsonify({"ok": True, "explanation": explanation})
 
 
 # ---------------------------------------------------------------------------
@@ -1162,6 +1298,136 @@ def api_chart(token_id):
     if data is None:
         return jsonify({"ok": False, "message": "Token not found"}), 404
     return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
+# AI Chat
+# ---------------------------------------------------------------------------
+
+_AI_CHAT_HTML = """<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolyBot — AI Chat</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+        --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;
+       font-size:14px;height:100vh;display:flex;flex-direction:column;}
+  header{padding:12px 20px;border-bottom:1px solid var(--border);
+         display:flex;align-items:center;gap:10px;flex-shrink:0;}
+  header h1{font-size:16px;font-weight:600;flex:1;}
+  a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
+             border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
+  a.btn-back:hover{background:#21262d;}
+  .chat-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px;}
+  .msg{max-width:80%;padding:10px 14px;border-radius:10px;line-height:1.5;font-size:13px;}
+  .msg-user{align-self:flex-end;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.3);
+            color:var(--text);}
+  .msg-ai{align-self:flex-start;background:var(--card);border:1px solid var(--border);
+          color:var(--text);white-space:pre-wrap;}
+  .msg-system{align-self:center;color:var(--muted);font-size:12px;font-style:italic;}
+  .input-bar{padding:12px 20px;border-top:1px solid var(--border);
+             display:flex;gap:8px;flex-shrink:0;}
+  .input-bar textarea{flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);
+                      border-radius:8px;color:var(--text);font-size:13px;
+                      font-family:inherit;resize:none;min-height:44px;max-height:120px;
+                      line-height:1.4;}
+  .input-bar textarea:focus{outline:none;border-color:var(--accent);}
+  .send-btn{padding:9px 18px;background:var(--accent);color:#0d1117;
+            border:none;border-radius:8px;font-weight:700;font-size:13px;
+            cursor:pointer;align-self:flex-end;white-space:nowrap;}
+  .send-btn:hover{opacity:.9;}
+  .send-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .typing{color:var(--muted);font-size:12px;font-style:italic;align-self:flex-start;}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 AI Chat — Polymarket</h1>
+  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+</header>
+<div class="chat-area" id="chatArea">
+  <div class="msg msg-system">שלום! אני יכול לענות על שאלות לגבי השווקים הפעילים. מה תרצה לדעת?</div>
+</div>
+<div class="input-bar">
+  <textarea id="msgInput" placeholder="שאל שאלה על שוק, תחזה, נושא..." rows="1"
+            onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
+  <button class="send-btn" id="sendBtn" onclick="sendMsg()">שלח ▶</button>
+</div>
+<script>
+const chatArea = document.getElementById('chatArea');
+
+function appendMsg(text, cls) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.textContent = text;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return div;
+}
+
+async function sendMsg() {
+  const inp = document.getElementById('msgInput');
+  const btn = document.getElementById('sendBtn');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  inp.style.height = '';
+  appendMsg(text, 'msg-user');
+  btn.disabled = true;
+  const typing = appendMsg('מקליד...', 'typing');
+  try {
+    const r = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text})
+    });
+    chatArea.removeChild(typing);
+    if (r.status === 403) { appendMsg('אין לך גישה ל-AI Chat.', 'msg-system'); }
+    else {
+      const d = await r.json();
+      appendMsg(d.reply || '...', 'msg-ai');
+    }
+  } catch(e) {
+    chatArea.removeChild(typing);
+    appendMsg('שגיאת רשת. נסה שוב.', 'msg-system');
+  }
+  btn.disabled = false;
+  inp.focus();
+}
+
+// Auto-resize textarea
+document.getElementById('msgInput').addEventListener('input', function() {
+  this.style.height = '';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+</script>
+</body>
+</html>"""
+
+
+@app.route("/ai-chat")
+@login_required
+@ai_required
+def ai_chat():
+    return _AI_CHAT_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/ai-chat", methods=["POST"])
+@login_required
+@ai_required
+def api_ai_chat():
+    import ai_client
+    data = request.get_json(force=True, silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"reply": "שלח שאלה תחילה."}), 400
+    market_context = store.get_hot_markets()
+    reply = ai_client.chat_with_markets(message, market_context)
+    return jsonify({"reply": reply})
 
 
 # ---------------------------------------------------------------------------
