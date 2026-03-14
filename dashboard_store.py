@@ -6,6 +6,7 @@ threads. All public methods acquire an RLock internally, so callers never need t
 """
 
 import threading
+import time as _time
 from collections import deque
 from datetime import datetime, timezone
 
@@ -134,6 +135,7 @@ class DashboardStore:
                 self._alert_feed.appendleft(
                     {
                         "time": t,
+                        "ts": _time.time(),
                         "label": a.get("label", token_id),
                         "event_label": a.get("event_label", a.get("label", token_id)),
                         "token_id": token_id,

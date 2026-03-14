@@ -174,7 +174,7 @@ class TelegramAlerter:
             f"<b>Market:</b> {event_label}"
             f"{outcome_line}\n"
             f"<b>Change:</b> <code>+{pct:.2f}%</code> in {win_label}\n"
-            f"<b>Price:</b> <code>{oldest:.4f} → {latest:.4f}</code>"
+            f"<b>Price:</b> <code>{oldest*100:.1f}% → {latest*100:.1f}%</code>"
             f"{vol_line}"
             f"{days_line}"
             f"{related_line}"

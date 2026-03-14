@@ -28,6 +28,8 @@ Routes:
 import logging
 import os
 import threading
+import time as _time
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
@@ -59,6 +61,10 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 
+_PLAN_ORDER = {"free": 0, "basic": 1, "pro": 2, "api": 3}
+_PLAN_LABELS = {"free": "Free", "basic": "Basic $15", "pro": "Pro $39", "api": "API $99"}
+
+
 class User(UserMixin):
     def __init__(self, data: dict):
         self.id = data["id"]
@@ -66,15 +72,40 @@ class User(UserMixin):
         self.role = data["role"]
         self.analytics_enabled = bool(data.get("analytics_enabled", 0))
         self.ai_enabled = bool(data.get("ai_enabled", 0))
+        self.plan = data.get("plan") or "free"
+        self.plan_expires = data.get("plan_expires") or ""
+        self.api_key = data.get("api_key") or ""
+        self.stripe_customer_id = data.get("stripe_customer_id") or ""
 
     def is_admin(self) -> bool:
         return self.role == "admin"
 
+    def _plan_active(self, min_plan: str) -> bool:
+        """Return True if user's plan is >= min_plan and not expired."""
+        if _PLAN_ORDER.get(self.plan, 0) < _PLAN_ORDER.get(min_plan, 99):
+            return False
+        if self.plan_expires:
+            try:
+                exp = datetime.fromisoformat(self.plan_expires)
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > exp:
+                    return False
+            except Exception:
+                pass
+        return True
+
     def can_analytics(self) -> bool:
-        return self.role == "admin" or self.analytics_enabled
+        return self.role == "admin" or self.analytics_enabled or self._plan_active("pro")
 
     def can_ai(self) -> bool:
-        return self.role == "admin" or self.ai_enabled
+        return self.role == "admin" or self.ai_enabled or self._plan_active("pro")
+
+    def can_realtime(self) -> bool:
+        return self.role == "admin" or self._plan_active("basic")
+
+    def can_api(self) -> bool:
+        return self.role == "admin" or self._plan_active("api")
 
 
 @login_manager.user_loader
@@ -282,7 +313,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
     <h2>משתמשים קיימים ({{ users|length }})</h2>
     <table>
       <thead><tr>
-        <th>אימייל</th><th>תפקיד</th><th>אנליטיקס</th><th>AI Chat</th><th>נוצר</th><th>פעולות</th>
+        <th>אימייל</th><th>תפקיד</th><th>תוכנית</th><th>אנליטיקס</th><th>AI Chat</th><th>נוצר</th><th>פעולות</th>
       </tr></thead>
       <tbody>
       {% for u in users %}
@@ -292,6 +323,16 @@ _ADMIN_HTML = """<!DOCTYPE html>
           {% if u.id == current_id %}<span class="you">(אתה)</span>{% endif %}
         </td>
         <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+        <td>
+          <form method="POST" action="/admin/users/{{ u.id }}/plan" style="display:inline;display:flex;gap:4px;align-items:center">
+            <select name="plan" style="padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px">
+              {% for p in ['free','basic','pro','api'] %}
+                <option value="{{ p }}" {% if u.plan == p %}selected{% endif %}>{{ p }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn" style="padding:3px 8px;font-size:11px">שמור</button>
+          </form>
+        </td>
         <td>
           {% if u.role == 'admin' %}
             <span style="color:var(--muted);font-size:12px">תמיד</span>
@@ -623,10 +664,13 @@ _HTML = """<!DOCTYPE html>
   <div class="user-bar">
     <span id="userEmail" style="color:var(--text)"></span>
     <span id="roleBadge" class="role-badge"></span>
+    <span id="planBadge" style="display:none;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(210,153,34,.15);color:#d29922"></span>
+    <a href="/pricing" id="upgradeLink" style="display:none;color:#f0883e;font-size:11px;border:1px solid #f0883e;padding:2px 8px;border-radius:5px">⬆ Upgrade</a>
     <a href="/analytics" id="analyticsLink" style="display:none">📊 אנליטיקס</a>
     <a href="/ai-chat" id="aiChatLink" style="display:none">🤖 AI Chat</a>
     <a href="/watchlist">⭐ Watchlist</a>
     <a href="/settings">⚙️ הגדרות</a>
+    <a href="/pricing">💎 תוכניות</a>
     <a href="/admin" id="adminLink" style="display:none">🔧 ניהול</a>
     <a href="/logout">יציאה</a>
   </div>
@@ -743,7 +787,7 @@ async function toggleWatchlist(btn, tokenId, eventLabel, label) {
   btn.disabled = false;
 }
 
-function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi) {
+function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi, plan, canRealtime) {
   isAdmin = admin;
   document.getElementById('userEmail').textContent = email;
   const rb = document.getElementById('roleBadge');
@@ -754,11 +798,22 @@ function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi) {
     document.getElementById('adminLink').style.display = 'inline';
     if (threshold != null) document.getElementById('thresholdInput').value = threshold;
   }
-  if (canAnalytics) {
-    document.getElementById('analyticsLink').style.display = 'inline';
+  if (canAnalytics) document.getElementById('analyticsLink').style.display = 'inline';
+  if (canAi) document.getElementById('aiChatLink').style.display = 'inline';
+  if (plan && plan !== 'free' && role !== 'admin') {
+    const pb = document.getElementById('planBadge');
+    pb.textContent = plan.charAt(0).toUpperCase() + plan.slice(1);
+    pb.style.display = 'inline-block';
   }
-  if (canAi) {
-    document.getElementById('aiChatLink').style.display = 'inline';
+  if (!canRealtime && role !== 'admin') {
+    document.getElementById('upgradeLink').style.display = 'inline';
+    const feed = document.getElementById('feed');
+    if (feed) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:11px;color:var(--yellow);padding:6px 10px;background:rgba(210,153,34,.08);border-radius:5px;margin-bottom:8px';
+      note.innerHTML = '⏱ תוכנית Free — נתונים מתעדכנים בעיכוב 10 דקות. <a href="/pricing" style="color:var(--accent)">שדרג לReal-time</a>';
+      feed.insertBefore(note, feed.firstChild);
+    }
   }
 }
 
@@ -832,7 +887,7 @@ async function fetchStatus() {
     document.getElementById('last-refresh').textContent = 'רענון: ' + new Date().toLocaleTimeString('he-IL');
 
     if (firstLoad) {
-      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics, data.can_ai);
+      applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics, data.can_ai, data.user_plan, data.can_realtime);
       firstLoad = false;
     }
 
@@ -966,22 +1021,35 @@ def index():
     return _HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+def _apply_plan_filter(feed: list, user) -> list:
+    """Apply free-plan restrictions: 10-min delay + max 5 items."""
+    if user.is_admin() or user.can_realtime():
+        return feed
+    now = _time.time()
+    delayed = [a for a in feed if now - a.get("ts", 0) >= 600]
+    return delayed[:5]
+
+
 @app.route("/api/status")
 @login_required
 def api_status():
     data = store.snapshot()
+    data["alert_feed"] = _apply_plan_filter(data["alert_feed"], current_user)
     data["is_admin"] = current_user.is_admin()
     data["user_email"] = current_user.email
     data["user_role"] = current_user.role
     data["can_analytics"] = current_user.can_analytics()
     data["can_ai"] = current_user.can_ai()
+    data["user_plan"] = current_user.plan
+    data["can_realtime"] = current_user.can_realtime()
     return jsonify(data)
 
 
 @app.route("/api/feed")
 @login_required
 def api_feed():
-    return jsonify(store.snapshot()["alert_feed"])
+    feed = store.snapshot()["alert_feed"]
+    return jsonify(_apply_plan_filter(feed, current_user))
 
 
 @app.route("/api/trigger-test", methods=["POST"])
@@ -1857,6 +1925,415 @@ def api_watchlist_chart(token_id):
     if data is None:
         return jsonify({"ok": False, "history": [], "alert_times": []}), 404
     return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
+# Admin — set user plan
+# ---------------------------------------------------------------------------
+
+@app.route("/admin/users/<int:uid>/plan", methods=["POST"])
+@login_required
+@admin_required
+def admin_set_plan(uid):
+    plan = request.form.get("plan", "free")
+    if plan not in ("free", "basic", "pro", "api"):
+        return redirect(url_for("admin", msg="תוכנית לא תקינה", cls="msg-err"))
+    db.update_user_plan(uid, plan)
+    user = db.get_user_by_id(uid)
+    return redirect(url_for("admin", msg=f"תוכנית עודכנה ל-{plan} עבור {user['email'] if user else uid}"))
+
+
+# ---------------------------------------------------------------------------
+# Pricing page
+# ---------------------------------------------------------------------------
+
+_PRICING_HTML = """<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolyBot — תוכניות מנוי</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+        --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;
+        --orange:#f0883e;--yellow:#d29922;--purple:#bc8cff;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
+  header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+  header h1{font-size:16px;font-weight:600;flex:1;}
+  a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
+             border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
+  a.btn-back:hover{background:#21262d;}
+  .page{padding:32px 20px;max-width:900px;margin:0 auto;}
+  .hero{text-align:center;margin-bottom:36px;}
+  .hero h2{font-size:26px;font-weight:700;margin-bottom:8px;}
+  .hero p{color:var(--muted);font-size:14px;}
+  .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px;}
+  .plan{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 20px;
+        display:flex;flex-direction:column;gap:10px;position:relative;}
+  .plan.popular{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .plan-popular-tag{position:absolute;top:-12px;right:50%;transform:translateX(50%);
+                    background:var(--accent);color:#0d1117;font-size:11px;font-weight:700;
+                    padding:2px 12px;border-radius:999px;}
+  .plan-name{font-size:16px;font-weight:700;}
+  .plan-price{font-size:28px;font-weight:800;color:var(--accent);}
+  .plan-price span{font-size:13px;font-weight:400;color:var(--muted);}
+  .plan-features{list-style:none;display:flex;flex-direction:column;gap:7px;flex:1;}
+  .plan-features li{font-size:13px;color:var(--muted);display:flex;align-items:flex-start;gap:6px;}
+  .plan-features li.yes{color:var(--text);}
+  .plan-features li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0;}
+  .plan-features li.no::before{content:'✗';color:var(--red);}
+  .plan-features li.no{color:var(--muted);}
+  .plan-btn{width:100%;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:14px;
+            cursor:pointer;margin-top:8px;transition:opacity .15s;}
+  .plan-btn:hover{opacity:.85;}
+  .plan-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-free{background:var(--border);color:var(--text);}
+  .btn-basic{background:var(--green);color:#0d1117;}
+  .btn-pro{background:var(--accent);color:#0d1117;}
+  .btn-api{background:var(--purple);color:#0d1117;}
+  .current-badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;
+                 font-weight:700;background:rgba(63,185,80,.15);color:var(--green);margin-top:4px;}
+  .msg{padding:10px 14px;border-radius:8px;margin-bottom:20px;font-size:13px;}
+  .msg-ok{background:rgba(63,185,80,.1);border:1px solid var(--green);color:var(--green);}
+  .msg-err{background:rgba(248,81,73,.1);border:1px solid var(--red);color:var(--red);}
+  .api-key-box{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px;}
+  .api-key-box h3{font-size:13px;font-weight:600;margin-bottom:10px;}
+  .key-row{display:flex;gap:8px;align-items:center;}
+  .key-val{flex:1;padding:7px 12px;background:var(--bg);border:1px solid var(--border);
+           border-radius:6px;color:var(--accent);font-family:Consolas,monospace;font-size:12px;
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .btn-sm{padding:6px 14px;border-radius:5px;border:1px solid var(--border);background:var(--card);
+          color:var(--text);font-size:12px;cursor:pointer;white-space:nowrap;}
+  .btn-sm:hover{background:#21262d;}
+</style>
+</head>
+<body>
+<header>
+  <h1>💎 תוכניות PolyBot</h1>
+  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+</header>
+<div class="page">
+  {% if msg %}<div class="msg {{ msg_cls }}">{{ msg }}</div>{% endif %}
+
+  <div class="hero">
+    <h2>בחר תוכנית שמתאימה לך</h2>
+    <p>כל התוכניות כוללות גישה לדאשבורד. שדרג לקבל נתונים בזמן אמת, Analytics ו-AI.</p>
+  </div>
+
+  <div class="plans">
+    <!-- Free -->
+    <div class="plan">
+      <div class="plan-name">Free</div>
+      <div class="plan-price">$0 <span>/חודש</span></div>
+      <ul class="plan-features">
+        <li class="yes">גישה לדאשבורד</li>
+        <li class="no">עיכוב 10 דקות בנתונים</li>
+        <li class="no">מקסימום 5 התראות בהיסטוריה</li>
+        <li class="no">Analytics</li>
+        <li class="no">AI Chat</li>
+        <li class="no">Watchlist עם גרפים</li>
+        <li class="no">REST API</li>
+      </ul>
+      {% if current_plan == 'free' %}
+        <div class="current-badge">התוכנית הנוכחית שלך</div>
+      {% endif %}
+    </div>
+
+    <!-- Basic -->
+    <div class="plan">
+      <div class="plan-name">Basic</div>
+      <div class="plan-price">$15 <span>/חודש</span></div>
+      <ul class="plan-features">
+        <li class="yes">גישה לדאשבורד</li>
+        <li class="yes">נתונים בזמן אמת</li>
+        <li class="yes">היסטוריה מלאה</li>
+        <li class="yes">Watchlist עם גרפים</li>
+        <li class="yes">הגדרות פילטר</li>
+        <li class="no">Analytics</li>
+        <li class="no">AI Chat</li>
+        <li class="no">REST API</li>
+      </ul>
+      {% if current_plan == 'basic' %}
+        <div class="current-badge">התוכנית הנוכחית שלך</div>
+      {% elif stripe_ok %}
+        <button class="plan-btn btn-basic" onclick="subscribe('basic')">הירשם עכשיו</button>
+      {% else %}
+        <button class="plan-btn btn-basic" disabled>Stripe לא מוגדר</button>
+      {% endif %}
+    </div>
+
+    <!-- Pro -->
+    <div class="plan popular">
+      <div class="plan-popular-tag">הכי פופולרי</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">$39 <span>/חודש</span></div>
+      <ul class="plan-features">
+        <li class="yes">הכל מ-Basic</li>
+        <li class="yes">Analytics — גרפי מחיר</li>
+        <li class="yes">AI Chat בעברית</li>
+        <li class="yes">סיכום AI בהתראות טלגרם</li>
+        <li class="no">REST API</li>
+      </ul>
+      {% if current_plan == 'pro' %}
+        <div class="current-badge">התוכנית הנוכחית שלך</div>
+      {% elif stripe_ok %}
+        <button class="plan-btn btn-pro" onclick="subscribe('pro')">הירשם עכשיו</button>
+      {% else %}
+        <button class="plan-btn btn-pro" disabled>Stripe לא מוגדר</button>
+      {% endif %}
+    </div>
+
+    <!-- API -->
+    <div class="plan">
+      <div class="plan-name">API</div>
+      <div class="plan-price">$99 <span>/חודש</span></div>
+      <ul class="plan-features">
+        <li class="yes">הכל מ-Pro</li>
+        <li class="yes">REST API — /api/v1/feed</li>
+        <li class="yes">API Key אישי</li>
+        <li class="yes">JSON feed בזמן אמת</li>
+        <li class="yes">אינטגרציה עם מערכות חיצוניות</li>
+      </ul>
+      {% if current_plan == 'api' %}
+        <div class="current-badge">התוכנית הנוכחית שלך</div>
+      {% elif stripe_ok %}
+        <button class="plan-btn btn-api" onclick="subscribe('api')">הירשם עכשיו</button>
+      {% else %}
+        <button class="plan-btn btn-api" disabled>Stripe לא מוגדר</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if current_plan == 'api' %}
+  <div class="api-key-box">
+    <h3>🔑 ה-API Key שלך</h3>
+    <div class="key-row">
+      <div class="key-val" id="apiKeyVal">{{ api_key or '—' }}</div>
+      <button class="btn-sm" onclick="copyKey()">העתק</button>
+      <button class="btn-sm" onclick="regenKey()">צור מחדש</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px">
+      שימוש: <code style="color:var(--accent)">GET /api/v1/feed?api_key=YOUR_KEY</code>
+    </p>
+  </div>
+  {% endif %}
+
+  {% if stripe_portal_ok and current_plan != 'free' %}
+  <div style="text-align:center;margin-top:8px">
+    <button class="btn-sm" onclick="openPortal()">⚙️ נהל מנוי / בטל</button>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+async function subscribe(plan) {
+  const r = await fetch('/api/stripe/create-checkout', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({plan})
+  });
+  const d = await r.json();
+  if (d.url) window.location.href = d.url;
+  else alert(d.message || 'שגיאה ביצירת checkout');
+}
+
+async function openPortal() {
+  const r = await fetch('/api/stripe/portal', {method: 'POST'});
+  const d = await r.json();
+  if (d.url) window.location.href = d.url;
+  else alert(d.message || 'שגיאה בפתיחת פורטל');
+}
+
+function copyKey() {
+  const val = document.getElementById('apiKeyVal').textContent;
+  navigator.clipboard.writeText(val).then(() => alert('API Key הועתק'));
+}
+
+async function regenKey() {
+  if (!confirm('לצור API Key חדש? המפתח הישן יפסיק לעבוד.')) return;
+  const r = await fetch('/api/stripe/regen-key', {method: 'POST'});
+  const d = await r.json();
+  if (d.api_key) document.getElementById('apiKeyVal').textContent = d.api_key;
+}
+</script>
+</body>
+</html>"""
+
+
+@app.route("/pricing")
+@login_required
+def pricing():
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    stripe_ok = bool(stripe_key)
+    stripe_portal_ok = bool(current_user.stripe_customer_id)
+    msg = request.args.get("msg", "")
+    msg_cls = "msg-ok" if request.args.get("ok") else "msg-err"
+    if request.args.get("success"):
+        msg = "✅ תשלום הצליח! התוכנית שלך עודכנה."
+        msg_cls = "msg-ok"
+    elif request.args.get("cancel"):
+        msg = "התשלום בוטל."
+        msg_cls = "msg-err"
+    return render_template_string(
+        _PRICING_HTML,
+        current_plan=current_user.plan,
+        api_key=current_user.api_key,
+        stripe_ok=stripe_ok,
+        stripe_portal_ok=stripe_portal_ok,
+        msg=msg,
+        msg_cls=msg_cls,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stripe routes
+# ---------------------------------------------------------------------------
+
+_STRIPE_PRICES = {
+    "basic": "STRIPE_PRICE_BASIC",
+    "pro":   "STRIPE_PRICE_PRO",
+    "api":   "STRIPE_PRICE_API",
+}
+
+
+def _get_stripe():
+    key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        import stripe
+        stripe.api_key = key
+        return stripe
+    except ImportError:
+        return None
+
+
+@app.route("/api/stripe/create-checkout", methods=["POST"])
+@login_required
+def api_stripe_create_checkout():
+    stripe = _get_stripe()
+    if not stripe:
+        return jsonify({"ok": False, "message": "Stripe לא מוגדר — הוסף STRIPE_SECRET_KEY ל-.env"}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    plan = data.get("plan", "")
+    price_env = _STRIPE_PRICES.get(plan)
+    if not price_env:
+        return jsonify({"ok": False, "message": "תוכנית לא תקינה"}), 400
+
+    price_id = os.getenv(price_env, "").strip()
+    if not price_id:
+        return jsonify({"ok": False, "message": f"חסר {price_env} ב-.env"}), 503
+
+    base_url = request.host_url.rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": price_id, "quantity": 1}],
+            client_reference_id=str(current_user.id),
+            customer_email=current_user.email,
+            metadata={"plan": plan, "user_id": str(current_user.id)},
+            success_url=f"{base_url}/pricing?success=1",
+            cancel_url=f"{base_url}/pricing?cancel=1",
+        )
+        return jsonify({"ok": True, "url": session.url})
+    except Exception as exc:
+        logger.error("Stripe checkout error: %s", exc)
+        return jsonify({"ok": False, "message": str(exc)}), 500
+
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def api_stripe_webhook():
+    stripe = _get_stripe()
+    if not stripe:
+        return "", 503
+
+    payload = request.data
+    sig = request.headers.get("Stripe-Signature", "")
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, webhook_secret) if webhook_secret \
+            else stripe.Event.construct_from(request.get_json(force=True), stripe.api_key)
+    except Exception as exc:
+        logger.warning("Stripe webhook error: %s", exc)
+        return "", 400
+
+    etype = event["type"]
+    obj = event["data"]["object"]
+
+    if etype == "checkout.session.completed":
+        user_id = int(obj.get("client_reference_id") or 0)
+        plan = (obj.get("metadata") or {}).get("plan", "basic")
+        customer_id = obj.get("customer", "")
+        if user_id:
+            from datetime import timedelta
+            expires = (datetime.now(timezone.utc) + timedelta(days=35)).isoformat()
+            db.update_user_plan(user_id, plan, expires, customer_id)
+            logger.info("Plan updated: user=%d plan=%s", user_id, plan)
+
+    elif etype in ("invoice.payment_succeeded",):
+        customer_id = obj.get("customer", "")
+        user_data = db.get_user_by_stripe_customer(customer_id)
+        if user_data:
+            from datetime import timedelta
+            expires = (datetime.now(timezone.utc) + timedelta(days=35)).isoformat()
+            db.update_user_plan(user_data["id"], user_data.get("plan", "basic"), expires)
+
+    elif etype in ("customer.subscription.deleted", "invoice.payment_failed"):
+        customer_id = obj.get("customer", "")
+        user_data = db.get_user_by_stripe_customer(customer_id)
+        if user_data:
+            db.update_user_plan(user_data["id"], "free")
+            logger.info("Plan downgraded to free: user=%d", user_data["id"])
+
+    return "", 200
+
+
+@app.route("/api/stripe/portal", methods=["POST"])
+@login_required
+def api_stripe_portal():
+    stripe = _get_stripe()
+    if not stripe:
+        return jsonify({"ok": False, "message": "Stripe לא מוגדר"}), 503
+    if not current_user.stripe_customer_id:
+        return jsonify({"ok": False, "message": "אין customer ID — צור מנוי תחילה"}), 400
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=current_user.stripe_customer_id,
+            return_url=request.host_url.rstrip("/") + "/pricing",
+        )
+        return jsonify({"ok": True, "url": session.url})
+    except Exception as exc:
+        return jsonify({"ok": False, "message": str(exc)}), 500
+
+
+@app.route("/api/stripe/regen-key", methods=["POST"])
+@login_required
+def api_stripe_regen_key():
+    if not current_user.can_api():
+        return jsonify({"ok": False, "message": "API plan required"}), 403
+    key = db.generate_api_key(current_user.id)
+    return jsonify({"ok": True, "api_key": key})
+
+
+# ---------------------------------------------------------------------------
+# REST API feed (api plan)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/v1/feed")
+def api_v1_feed():
+    api_key = request.args.get("api_key", "").strip()
+    if not api_key:
+        return jsonify({"error": "api_key required"}), 401
+    user_data = db.get_user_by_api_key(api_key)
+    if not user_data:
+        return jsonify({"error": "invalid api_key"}), 401
+    user = User(user_data)
+    if not user.can_api():
+        return jsonify({"error": "API plan required"}), 403
+    return jsonify(store.snapshot()["alert_feed"])
 
 
 # ---------------------------------------------------------------------------

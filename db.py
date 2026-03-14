@@ -6,6 +6,7 @@ Users table: id, email (unique), password_hash, role ('admin' | 'viewer'), creat
 
 import os
 import sqlite3
+import uuid
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -37,6 +38,22 @@ def init_db() -> None:
             con.execute("ALTER TABLE users ADD COLUMN ai_enabled INTEGER DEFAULT 0")
         except Exception:
             pass  # column already exists
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN plan_expires TEXT")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN api_key TEXT UNIQUE")
+        except Exception:
+            pass
         con.execute("""
             CREATE TABLE IF NOT EXISTS muted_events (
                 event_label  TEXT PRIMARY KEY,
@@ -104,7 +121,7 @@ def create_user(email: str, password: str, role: str = "viewer") -> bool:
 def get_user_by_email(email: str) -> dict | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled FROM users WHERE email = ?",
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled, plan, plan_expires, stripe_customer_id, api_key FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
     return dict(row) if row else None
@@ -113,7 +130,7 @@ def get_user_by_email(email: str) -> dict | None:
 def get_user_by_id(user_id: int) -> dict | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled FROM users WHERE id = ?",
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled, plan, plan_expires, stripe_customer_id, api_key FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
@@ -122,7 +139,7 @@ def get_user_by_id(user_id: int) -> dict | None:
 def get_all_users() -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT id, email, role, created_at, analytics_enabled, ai_enabled FROM users ORDER BY id"
+            "SELECT id, email, role, created_at, analytics_enabled, ai_enabled, plan, plan_expires FROM users ORDER BY id"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -203,6 +220,51 @@ def get_watchlist(user_id: int) -> list[dict]:
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Subscription plan management
+# ---------------------------------------------------------------------------
+
+def update_user_plan(user_id: int, plan: str, expires_iso: str | None = None, stripe_customer_id: str | None = None) -> None:
+    with _conn() as con:
+        if stripe_customer_id:
+            con.execute(
+                "UPDATE users SET plan=?, plan_expires=?, stripe_customer_id=? WHERE id=?",
+                (plan, expires_iso, stripe_customer_id, user_id),
+            )
+        else:
+            con.execute(
+                "UPDATE users SET plan=?, plan_expires=? WHERE id=?",
+                (plan, expires_iso, user_id),
+            )
+        con.commit()
+
+
+def get_user_by_stripe_customer(customer_id: str) -> dict | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled, plan, plan_expires, stripe_customer_id, api_key FROM users WHERE stripe_customer_id = ?",
+            (customer_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def generate_api_key(user_id: int) -> str:
+    key = str(uuid.uuid4())
+    with _conn() as con:
+        con.execute("UPDATE users SET api_key = ? WHERE id = ?", (key, user_id))
+        con.commit()
+    return key
+
+
+def get_user_by_api_key(api_key: str) -> dict | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id, email, password_hash, role, analytics_enabled, ai_enabled, plan, plan_expires, stripe_customer_id, api_key FROM users WHERE api_key = ?",
+            (api_key,),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def toggle_watchlist(user_id: int, token_id: str, event_label: str = "", label: str = "") -> dict:
