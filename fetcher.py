@@ -159,10 +159,12 @@ class Fetcher:
                             continue
                     if isinstance(clob_ids, list):
                         market_label = market.get("groupItemTitle") or market.get("question") or title
-                        for tid in clob_ids:
+                        yn = ["Yes", "No"] if len(clob_ids) == 2 else [None] * len(clob_ids)
+                        for i, tid in enumerate(clob_ids):
                             tid_str = str(tid)
                             token_ids.append(tid_str)
-                            token_to_label[tid_str] = market_label
+                            suffix = f" — {yn[i]}" if yn[i] else ""
+                            token_to_label[tid_str] = market_label + suffix
                             token_to_url[tid_str] = url
                             token_to_event_label[tid_str] = title
 
