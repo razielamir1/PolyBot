@@ -649,14 +649,14 @@ _HTML = """<!DOCTYPE html>
   <span id="last-refresh"></span>
 
   <div class="action-bar" id="adminBar" style="display:none">
-    <button class="btn btn-orange" id="btnCycle"    onclick="forceCycle()">⚡ הפעל מחזור עכשיו</button>
-    <button class="btn btn-green"  id="btnTelegram" onclick="triggerTelegram()">📨 בדיקת טלגרם</button>
-    <button class="btn btn-blue"   id="btnRefresh"  onclick="triggerRefresh()">🔄 רענן שווקים</button>
+    <button class="btn btn-orange" id="btnCycle"    onclick="forceCycle()" data-i18n="btn_cycle">⚡ הפעל מחזור עכשיו</button>
+    <button class="btn btn-green"  id="btnTelegram" onclick="triggerTelegram()" data-i18n="btn_telegram">📨 בדיקת טלגרם</button>
+    <button class="btn btn-blue"   id="btnRefresh"  onclick="triggerRefresh()" data-i18n="btn_refresh">🔄 רענן שווקים</button>
     <div class="threshold-bar">
-      <label>סף:</label>
+      <label data-i18n="threshold_label">סף:</label>
       <input type="number" id="thresholdInput" min="0.1" max="100" step="0.1" value="10">
       <span style="color:var(--muted)">%</span>
-      <button onclick="setThreshold()">עדכן</button>
+      <button onclick="setThreshold()" data-i18n="btn_update">עדכן</button>
     </div>
     <span id="actionMsg"></span>
   </div>
@@ -666,37 +666,38 @@ _HTML = """<!DOCTYPE html>
     <span id="roleBadge" class="role-badge"></span>
     <span id="planBadge" style="display:none;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(210,153,34,.15);color:#d29922"></span>
     <a href="/pricing" id="upgradeLink" style="display:none;color:#f0883e;font-size:11px;border:1px solid #f0883e;padding:2px 8px;border-radius:5px">⬆ Upgrade</a>
-    <a href="/analytics" id="analyticsLink" style="display:none">📊 אנליטיקס</a>
+    <a href="/analytics" id="analyticsLink" style="display:none" data-i18n="nav_analytics">📊 אנליטיקס</a>
     <a href="/ai-chat" id="aiChatLink" style="display:none">🤖 AI Chat</a>
     <a href="/watchlist">⭐ Watchlist</a>
-    <a href="/settings">⚙️ הגדרות</a>
-    <a href="/pricing">💎 תוכניות</a>
-    <a href="/admin" id="adminLink" style="display:none">🔧 ניהול</a>
-    <a href="/logout">יציאה</a>
+    <a href="/settings" data-i18n="nav_settings">⚙️ הגדרות</a>
+    <a href="/pricing" data-i18n="nav_plans">💎 תוכניות</a>
+    <a href="/admin" id="adminLink" style="display:none" data-i18n="nav_admin">🔧 ניהול</a>
+    <a href="/logout" data-i18n="nav_logout">יציאה</a>
+    <button id="langToggle" onclick="toggleLang()" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:11px;cursor:pointer;font-weight:700">EN</button>
   </div>
 </header>
 
 <div class="grid">
 
   <div class="card">
-    <h2>סטטוס הבוט</h2>
+    <h2 data-i18n="status_title">סטטוס הבוט</h2>
     <div class="stat-grid">
-      <div class="stat"><div class="stat-label">מחזורים</div><div class="stat-value" id="cycleCount">—</div></div>
-      <div class="stat"><div class="stat-label">שווקים במעקב</div><div class="stat-value" id="mktCount">—</div></div>
-      <div class="stat"><div class="stat-label">עדכון אחרון</div><div class="stat-value" style="font-size:15px" id="lastUpdate">—</div></div>
-      <div class="stat"><div class="stat-label">פעיל מאז</div><div class="stat-value" style="font-size:15px" id="startTime">—</div></div>
+      <div class="stat"><div class="stat-label" data-i18n="stat_cycles">מחזורים</div><div class="stat-value" id="cycleCount">—</div></div>
+      <div class="stat"><div class="stat-label" data-i18n="stat_markets">שווקים במעקב</div><div class="stat-value" id="mktCount">—</div></div>
+      <div class="stat"><div class="stat-label" data-i18n="stat_last_update">עדכון אחרון</div><div class="stat-value" style="font-size:15px" id="lastUpdate">—</div></div>
+      <div class="stat"><div class="stat-label" data-i18n="stat_since">פעיל מאז</div><div class="stat-value" style="font-size:15px" id="startTime">—</div></div>
     </div>
   </div>
 
   <div class="card">
-    <h2>התראות חיות <span id="alertBadge" class="badge" style="display:none">0</span></h2>
-    <div id="feed"><div class="empty">ממתין להתראות...</div></div>
+    <h2><span data-i18n="alerts_title">התראות חיות</span> <span id="alertBadge" class="badge" style="display:none">0</span></h2>
+    <div id="feed"><div class="empty" data-i18n="empty_feed">ממתין להתראות...</div></div>
   </div>
 
   <div class="card card-full">
     <h2>
-      סטטיסטיקת שוק
-      <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">
+      <span data-i18n="market_stats_title">סטטיסטיקת שוק</span>
+      <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)" data-i18n="market_stats_sub">
         — מחירים = הסתברות (0%–100%) · מקובצים לפי אירוע
       </span>
       <span id="mktBadge" class="badge" style="margin-right:auto"></span>
@@ -704,30 +705,30 @@ _HTML = """<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>נושא</th><th>תשובה</th>
-          <th title="הסתברות הגבוהה ביותר מבין כל הטוקנים של האירוע הזה">מחיר גבוה ביותר באירוע (%)</th>
-          <th title="הקפיצה הגדולה ביותר שנצפתה בחלון 5 דק׳">שינוי מקסימלי בחלון 5 דק׳</th>
-          <th title="כמה התראות נשלחו מאז הפעלת הבוט">התראות שנשלחו לטלגרם</th>
-          <th title="הוסף ל-Watchlist">⭐</th>
+          <th data-i18n="col_topic">נושא</th><th data-i18n="col_outcome">תשובה</th>
+          <th data-i18n="col_max_price">מחיר גבוה ביותר באירוע (%)</th>
+          <th data-i18n="col_max_change">שינוי מקסימלי בחלון 5 דק׳</th>
+          <th data-i18n="col_alerts_sent">התראות שנשלחו לטלגרם</th>
+          <th>⭐</th>
         </tr></thead>
-        <tbody id="marketBody"><tr><td colspan="6" class="empty">ממתין...</td></tr></tbody>
+        <tbody id="marketBody"><tr><td colspan="6" class="empty" data-i18n="empty_markets">ממתין...</td></tr></tbody>
       </table>
     </div>
     <div class="pager">
-      <button id="prevBtn" onclick="changePage(-1)" disabled>◀ הקודם</button>
+      <button id="prevBtn" onclick="changePage(-1)" disabled data-i18n="btn_prev">◀ הקודם</button>
       <span id="pageInfo">—</span>
-      <button id="nextBtn" onclick="changePage(1)" disabled>הבא ▶</button>
+      <button id="nextBtn" onclick="changePage(1)" disabled data-i18n="btn_next">הבא ▶</button>
     </div>
   </div>
 
   <div class="card card-full">
-    <h2>היסטוריית התראות</h2>
+    <h2 data-i18n="history_title">היסטוריית התראות</h2>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>שעה (UTC)</th><th>נושא</th><th>תשובה</th><th>קפיצה</th><th>מחיר לפני</th><th>מחיר אחרי</th><th></th>
+          <th data-i18n="col_time">שעה (UTC)</th><th data-i18n="col_topic">נושא</th><th data-i18n="col_outcome">תשובה</th><th data-i18n="col_jump">קפיצה</th><th data-i18n="col_price_before">מחיר לפני</th><th data-i18n="col_price_after">מחיר אחרי</th><th></th>
         </tr></thead>
-        <tbody id="historyBody"><tr><td colspan="7" class="empty">אין היסטוריה עדיין.</td></tr></tbody>
+        <tbody id="historyBody"><tr><td colspan="7" class="empty" data-i18n="empty_history">אין היסטוריה עדיין.</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -735,9 +736,83 @@ _HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+const LANG = {
+  he: {
+    nav_analytics:'📊 אנליטיקס', nav_settings:'⚙️ הגדרות', nav_plans:'💎 תוכניות',
+    nav_admin:'🔧 ניהול', nav_logout:'יציאה',
+    status_title:'סטטוס הבוט', alerts_title:'התראות חיות',
+    market_stats_title:'סטטיסטיקת שוק', history_title:'היסטוריית התראות',
+    market_stats_sub:'— מחירים = הסתברות (0%–100%) · מקובצים לפי אירוע',
+    stat_cycles:'מחזורים', stat_markets:'שווקים במעקב',
+    stat_last_update:'עדכון אחרון', stat_since:'פעיל מאז',
+    col_topic:'נושא', col_outcome:'תשובה',
+    col_max_price:'מחיר גבוה ביותר באירוע (%)',
+    col_max_change:'שינוי מקסימלי בחלון 5 דק׳',
+    col_alerts_sent:'התראות שנשלחו לטלגרם',
+    col_time:'שעה (UTC)', col_jump:'קפיצה',
+    col_price_before:'מחיר לפני', col_price_after:'מחיר אחרי',
+    btn_prev:'◀ הקודם', btn_next:'הבא ▶',
+    btn_cycle:'⚡ הפעל מחזור עכשיו', btn_cycle_load:'⚡ מפעיל...',
+    btn_telegram:'📨 בדיקת טלגרם', btn_telegram_load:'📨 שולח...',
+    btn_refresh:'🔄 רענן שווקים', btn_refresh_load:'🔄 מרענן...',
+    threshold_label:'סף:', btn_update:'עדכן',
+    empty_feed:'ממתין להתראות...', empty_markets:'ממתין לנתונים...',
+    empty_history:'אין היסטוריה עדיין.', warming_up:'מחמם...',
+    page_x:'עמוד', of_x:'מתוך', markets_x:'שווקים', filtered_x:'מסונן',
+    refresh_x:'רענון:', free_plan_note:'תוכנית Free — נתונים מתעדכנים בעיכוב 10 דקות.',
+    upgrade_link:'שדרג לReal-time', net_error:'שגיאת רשת',
+    threshold_invalid:'ערך סף לא תקין',
+    add_watchlist:'הוסף ל-Watchlist', rm_watchlist:'הסר מ-Watchlist',
+    mute_event:'השתק אירוע זה', open_poly:'פתח בפולימארקט',
+  },
+  en: {
+    nav_analytics:'📊 Analytics', nav_settings:'⚙️ Settings', nav_plans:'💎 Plans',
+    nav_admin:'🔧 Admin', nav_logout:'Logout',
+    status_title:'Bot Status', alerts_title:'Live Alerts',
+    market_stats_title:'Market Statistics', history_title:'Alert History',
+    market_stats_sub:'— Prices = probability (0%–100%) · grouped by event',
+    stat_cycles:'Cycles', stat_markets:'Markets Tracked',
+    stat_last_update:'Last Update', stat_since:'Active Since',
+    col_topic:'Topic', col_outcome:'Outcome',
+    col_max_price:'Highest Price in Event (%)',
+    col_max_change:'Max Change (5 min window)',
+    col_alerts_sent:'Telegram Alerts Sent',
+    col_time:'Time (UTC)', col_jump:'Change',
+    col_price_before:'Price Before', col_price_after:'Price After',
+    btn_prev:'◀ Prev', btn_next:'Next ▶',
+    btn_cycle:'⚡ Force Cycle Now', btn_cycle_load:'⚡ Running...',
+    btn_telegram:'📨 Test Telegram', btn_telegram_load:'📨 Sending...',
+    btn_refresh:'🔄 Refresh Markets', btn_refresh_load:'🔄 Refreshing...',
+    threshold_label:'Threshold:', btn_update:'Update',
+    empty_feed:'Waiting for alerts...', empty_markets:'Waiting for data...',
+    empty_history:'No history yet.', warming_up:'Warming up...',
+    page_x:'Page', of_x:'of', markets_x:'markets', filtered_x:'filtered',
+    refresh_x:'Refreshed:', free_plan_note:'Free plan — data is delayed 10 minutes.',
+    upgrade_link:'Upgrade to Real-time', net_error:'Network error',
+    threshold_invalid:'Invalid threshold value',
+    add_watchlist:'Add to Watchlist', rm_watchlist:'Remove from Watchlist',
+    mute_event:'Mute this event', open_poly:'Open on Polymarket',
+  }
+};
+let curLang = localStorage.getItem('polybot_lang') || 'he';
+function t(k) { return (LANG[curLang]||{})[k] || LANG.he[k] || k; }
+function toggleLang() {
+  curLang = curLang === 'he' ? 'en' : 'he';
+  localStorage.setItem('polybot_lang', curLang);
+  applyLangUI();
+}
+function applyLangUI() {
+  document.documentElement.lang = curLang;
+  document.documentElement.dir = curLang === 'he' ? 'rtl' : 'ltr';
+  const lt = document.getElementById('langToggle');
+  if (lt) lt.textContent = curLang === 'he' ? 'EN' : 'HE';
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  renderMarketPage();
+}
+
 const fmtPct = v => v == null ? null : (v * 100).toFixed(1) + '%';
 const fmtChg = v => v == null
-  ? '<span class="wm">מחמם...</span>'
+  ? `<span class="wm">${t('warming_up')}</span>`
   : `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;
 
 let isAdmin = false;
@@ -781,8 +856,8 @@ async function toggleWatchlist(btn, tokenId, eventLabel, label) {
       body: JSON.stringify({token_id: tokenId, event_label: eventLabel, label: label})
     });
     const d = await r.json();
-    if (d.added) { watchlistTokens.add(tokenId); btn.textContent = '⭐'; btn.title = 'הסר מ-Watchlist'; }
-    else { watchlistTokens.delete(tokenId); btn.textContent = '☆'; btn.title = 'הוסף ל-Watchlist'; }
+    if (d.added) { watchlistTokens.add(tokenId); btn.textContent = '⭐'; btn.title = t('rm_watchlist'); }
+    else { watchlistTokens.delete(tokenId); btn.textContent = '☆'; btn.title = t('add_watchlist'); }
   } catch(e) {}
   btn.disabled = false;
 }
@@ -811,7 +886,7 @@ function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi, plan, c
     if (feed) {
       const note = document.createElement('div');
       note.style.cssText = 'font-size:11px;color:var(--yellow);padding:6px 10px;background:rgba(210,153,34,.08);border-radius:5px;margin-bottom:8px';
-      note.innerHTML = '⏱ תוכנית Free — נתונים מתעדכנים בעיכוב 10 דקות. <a href="/pricing" style="color:var(--accent)">שדרג לReal-time</a>';
+      note.innerHTML = `⏱ ${t('free_plan_note')} <a href="/pricing" style="color:var(--accent)">${t('upgrade_link')}</a>`;
       feed.insertBefore(note, feed.firstChild);
     }
   }
@@ -849,17 +924,17 @@ function renderMarketPage() {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   currentPage = Math.min(currentPage, pages);
   const slice = filtered.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
-  document.getElementById('pageInfo').textContent = total ? `עמוד ${currentPage} מתוך ${pages}` : '—';
+  document.getElementById('pageInfo').textContent = total ? `${t('page_x')} ${currentPage} ${t('of_x')} ${pages}` : '—';
   document.getElementById('prevBtn').disabled = currentPage <= 1;
   document.getElementById('nextBtn').disabled = currentPage >= pages;
-  document.getElementById('mktBadge').textContent = total + ' שווקים' + (userKeywords.length ? ' (מסונן)' : '');
+  document.getElementById('mktBadge').textContent = total + ' ' + t('markets_x') + (userKeywords.length ? ' (' + t('filtered_x') + ')' : '');
   const tbody = document.getElementById('marketBody');
-  if (!slice.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">ממתין לנתונים...</td></tr>'; return; }
+  if (!slice.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">${t('empty_markets')}</td></tr>`; return; }
   tbody.innerHTML = slice.map(m => {
     const inWl = m.token_id && watchlistTokens.has(m.token_id);
     const wlBtn = m.token_id ? `<button onclick="toggleWatchlist(this,'${m.token_id}','${(m.event_label||'').replace(/'/g,"\\'")}','${(m.label||'').replace(/'/g,"\\'")}'); event.stopPropagation();"
       style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:.8"
-      title="${inWl ? 'הסר מ-Watchlist' : 'הוסף ל-Watchlist'}">${inWl ? '⭐' : '☆'}</button>` : '';
+      title="${inWl ? t('rm_watchlist') : t('add_watchlist')}">${inWl ? '⭐' : '☆'}</button>` : '';
     return `<tr>
       <td class="lbl" title="${m.event_label}">${m.event_label}</td>
       <td class="lbl">${m.label}</td>
@@ -884,7 +959,7 @@ async function fetchStatus() {
     document.getElementById('cycleCount').textContent = s.cycle_count;
     document.getElementById('lastUpdate').textContent = s.last_update;
     document.getElementById('startTime').textContent  = s.start_time;
-    document.getElementById('last-refresh').textContent = 'רענון: ' + new Date().toLocaleTimeString('he-IL');
+    document.getElementById('last-refresh').textContent = t('refresh_x') + ' ' + new Date().toLocaleTimeString(curLang === 'he' ? 'he-IL' : 'en-US');
 
     if (firstLoad) {
       applyAuthUI(data.is_admin, data.user_email, data.user_role, data.threshold, data.can_analytics, data.can_ai, data.user_plan, data.can_realtime);
@@ -898,13 +973,13 @@ async function fetchStatus() {
     const hbody = document.getElementById('historyBody');
     const filteredFeed = data.alert_feed.filter(a => matchesFilter(a.event_label, a.label, a.pct_change));
     if (!filteredFeed.length) {
-      hbody.innerHTML = '<tr><td colspan="7" class="empty">אין היסטוריה עדיין.</td></tr>';
+      hbody.innerHTML = `<tr><td colspan="7" class="empty">${t('empty_history')}</td></tr>`;
     } else {
       hbody.innerHTML = filteredFeed.map(a => {
         const ev = a.event_label || a.label;
         const out = (a.label && a.label !== ev) ? a.label : '—';
-        const link = a.url ? `<a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:14px" title="פתח בפולימארקט">🔗</a>` : '';
-        const muteBtn = isAdmin ? `<button onclick="muteEvent(this,'${ev.replace(/'/g,"\\'")}',event)" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:.5;padding:0 2px" title="השתק אירוע זה">🔕</button>` : '';
+        const link = a.url ? `<a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:14px" title="${t('open_poly')}">🔗</a>` : '';
+        const muteBtn = isAdmin ? `<button onclick="muteEvent(this,'${ev.replace(/'/g,"\\'")}',event)" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:.5;padding:0 2px" title="${t('mute_event')}">🔕</button>` : '';
         return `<tr>
           <td class="mu">${a.time}</td>
           <td class="lbl" title="${ev}">${ev}</td>
@@ -963,18 +1038,18 @@ async function apiPost(url, btnId, loadingText, origText) {
     const r = await fetch(url, {method:'POST'});
     const d = await r.json();
     showMsg(d.message);
-  } catch(e) { showMsg('שגיאת רשת'); }
+  } catch(e) { showMsg(t('net_error')); }
   btn.textContent = origText; btn.disabled = false;
 }
 
-const forceCycle      = () => apiPost('/api/force-cycle',     'btnCycle',    '⚡ מפעיל...', '⚡ הפעל מחזור עכשיו');
-const triggerTelegram = () => apiPost('/api/trigger-test',    'btnTelegram', '📨 שולח...',  '📨 בדיקת טלגרם');
-const triggerRefresh  = () => apiPost('/api/refresh-markets', 'btnRefresh',  '🔄 מרענן...', '🔄 רענן שווקים');
+const forceCycle      = () => apiPost('/api/force-cycle',     'btnCycle',    t('btn_cycle_load'),    t('btn_cycle'));
+const triggerTelegram = () => apiPost('/api/trigger-test',    'btnTelegram', t('btn_telegram_load'), t('btn_telegram'));
+const triggerRefresh  = () => apiPost('/api/refresh-markets', 'btnRefresh',  t('btn_refresh_load'),  t('btn_refresh'));
 
 async function setThreshold() {
   if (!isAdmin) return;
   const val = parseFloat(document.getElementById('thresholdInput').value);
-  if (isNaN(val) || val <= 0) { showMsg('ערך סף לא תקין'); return; }
+  if (isNaN(val) || val <= 0) { showMsg(t('threshold_invalid')); return; }
   try {
     const r = await fetch('/api/set-threshold', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1002,6 +1077,7 @@ async function muteEvent(btn, eventLabel, e) {
 
 loadMyWatchlist();
 loadMySettings();
+applyLangUI();
 fetchStatus();
 fetchFeed();
 setInterval(fetchStatus, 10000);
@@ -1952,7 +2028,7 @@ _PRICING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PolyBot — תוכניות מנוי</title>
+<title>PolyBot — Plans</title>
 <style>
   :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
         --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;
@@ -1964,6 +2040,8 @@ _PRICING_HTML = """<!DOCTYPE html>
   a.btn-back{color:var(--accent);text-decoration:none;font-size:13px;
              border:1px solid var(--border);padding:4px 12px;border-radius:6px;}
   a.btn-back:hover{background:#21262d;}
+  .lang-btn{padding:3px 10px;border-radius:4px;border:1px solid var(--border);
+            background:var(--card);color:var(--muted);font-size:11px;cursor:pointer;font-weight:700;}
   .page{padding:32px 20px;max-width:900px;margin:0 auto;}
   .hero{text-align:center;margin-bottom:36px;}
   .hero h2{font-size:26px;font-weight:700;margin-bottom:8px;}
@@ -1988,7 +2066,6 @@ _PRICING_HTML = """<!DOCTYPE html>
             cursor:pointer;margin-top:8px;transition:opacity .15s;}
   .plan-btn:hover{opacity:.85;}
   .plan-btn:disabled{opacity:.4;cursor:not-allowed;}
-  .btn-free{background:var(--border);color:var(--text);}
   .btn-basic{background:var(--green);color:#0d1117;}
   .btn-pro{background:var(--accent);color:#0d1117;}
   .btn-api{background:var(--purple);color:#0d1117;}
@@ -2006,156 +2083,203 @@ _PRICING_HTML = """<!DOCTYPE html>
   .btn-sm{padding:6px 14px;border-radius:5px;border:1px solid var(--border);background:var(--card);
           color:var(--text);font-size:12px;cursor:pointer;white-space:nowrap;}
   .btn-sm:hover{background:#21262d;}
+  #requestMsg{padding:12px 16px;border-radius:8px;margin-top:16px;font-size:13px;
+              text-align:center;display:none;}
 </style>
 </head>
 <body>
 <header>
-  <h1>💎 תוכניות PolyBot</h1>
-  <a class="btn-back" href="/">← חזרה לדאשבורד</a>
+  <h1>💎 <span data-i18n="title">תוכניות PolyBot</span></h1>
+  <a class="btn-back" href="/">← <span data-i18n="back">חזרה לדאשבורד</span></a>
+  <button class="lang-btn" id="langToggle" onclick="toggleLang()">EN</button>
 </header>
 <div class="page">
   {% if msg %}<div class="msg {{ msg_cls }}">{{ msg }}</div>{% endif %}
 
   <div class="hero">
-    <h2>בחר תוכנית שמתאימה לך</h2>
-    <p>כל התוכניות כוללות גישה לדאשבורד. שדרג לקבל נתונים בזמן אמת, Analytics ו-AI.</p>
+    <h2 data-i18n="hero_title">בחר תוכנית שמתאימה לך</h2>
+    <p data-i18n="hero_sub">כל התוכניות כוללות גישה לדאשבורד. שדרג לקבל נתונים בזמן אמת, Analytics ו-AI.</p>
   </div>
 
   <div class="plans">
     <!-- Free -->
     <div class="plan">
       <div class="plan-name">Free</div>
-      <div class="plan-price">$0 <span>/חודש</span></div>
+      <div class="plan-price">$0 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes">גישה לדאשבורד</li>
-        <li class="no">עיכוב 10 דקות בנתונים</li>
-        <li class="no">מקסימום 5 התראות בהיסטוריה</li>
+        <li class="yes" data-i18n="feat_dashboard">גישה לדאשבורד</li>
+        <li class="no" data-i18n="feat_free_delay">עיכוב 10 דקות בנתונים</li>
+        <li class="no" data-i18n="feat_free_limit">מקסימום 5 התראות בהיסטוריה</li>
         <li class="no">Analytics</li>
         <li class="no">AI Chat</li>
-        <li class="no">Watchlist עם גרפים</li>
+        <li class="no" data-i18n="feat_watchlist">Watchlist עם גרפים</li>
         <li class="no">REST API</li>
       </ul>
       {% if current_plan == 'free' %}
-        <div class="current-badge">התוכנית הנוכחית שלך</div>
+        <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
       {% endif %}
     </div>
 
     <!-- Basic -->
     <div class="plan">
       <div class="plan-name">Basic</div>
-      <div class="plan-price">$15 <span>/חודש</span></div>
+      <div class="plan-price">$15 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes">גישה לדאשבורד</li>
-        <li class="yes">נתונים בזמן אמת</li>
-        <li class="yes">היסטוריה מלאה</li>
-        <li class="yes">Watchlist עם גרפים</li>
-        <li class="yes">הגדרות פילטר</li>
+        <li class="yes" data-i18n="feat_dashboard">גישה לדאשבורד</li>
+        <li class="yes" data-i18n="feat_realtime">נתונים בזמן אמת</li>
+        <li class="yes" data-i18n="feat_full_history">היסטוריה מלאה</li>
+        <li class="yes" data-i18n="feat_watchlist">Watchlist עם גרפים</li>
+        <li class="yes" data-i18n="feat_filters">הגדרות פילטר</li>
         <li class="no">Analytics</li>
         <li class="no">AI Chat</li>
         <li class="no">REST API</li>
       </ul>
       {% if current_plan == 'basic' %}
-        <div class="current-badge">התוכנית הנוכחית שלך</div>
-      {% elif stripe_ok %}
-        <button class="plan-btn btn-basic" onclick="subscribe('basic')">הירשם עכשיו</button>
+        <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
       {% else %}
-        <button class="plan-btn btn-basic" disabled>Stripe לא מוגדר</button>
+        <button class="plan-btn btn-basic" onclick="requestPlan('basic')" data-i18n="btn_contact">צור קשר לשדרוג</button>
       {% endif %}
     </div>
 
     <!-- Pro -->
     <div class="plan popular">
-      <div class="plan-popular-tag">הכי פופולרי</div>
+      <div class="plan-popular-tag" data-i18n="most_popular">הכי פופולרי</div>
       <div class="plan-name">Pro</div>
-      <div class="plan-price">$39 <span>/חודש</span></div>
+      <div class="plan-price">$39 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes">הכל מ-Basic</li>
-        <li class="yes">Analytics — גרפי מחיר</li>
-        <li class="yes">AI Chat בעברית</li>
-        <li class="yes">סיכום AI בהתראות טלגרם</li>
+        <li class="yes" data-i18n="feat_all_basic">הכל מ-Basic</li>
+        <li class="yes" data-i18n="feat_analytics">Analytics — גרפי מחיר</li>
+        <li class="yes" data-i18n="feat_ai_chat">AI Chat בעברית</li>
+        <li class="yes" data-i18n="feat_ai_alerts">סיכום AI בהתראות טלגרם</li>
         <li class="no">REST API</li>
       </ul>
       {% if current_plan == 'pro' %}
-        <div class="current-badge">התוכנית הנוכחית שלך</div>
-      {% elif stripe_ok %}
-        <button class="plan-btn btn-pro" onclick="subscribe('pro')">הירשם עכשיו</button>
+        <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
       {% else %}
-        <button class="plan-btn btn-pro" disabled>Stripe לא מוגדר</button>
+        <button class="plan-btn btn-pro" onclick="requestPlan('pro')" data-i18n="btn_contact">צור קשר לשדרוג</button>
       {% endif %}
     </div>
 
     <!-- API -->
     <div class="plan">
       <div class="plan-name">API</div>
-      <div class="plan-price">$99 <span>/חודש</span></div>
+      <div class="plan-price">$99 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes">הכל מ-Pro</li>
+        <li class="yes" data-i18n="feat_all_pro">הכל מ-Pro</li>
         <li class="yes">REST API — /api/v1/feed</li>
-        <li class="yes">API Key אישי</li>
-        <li class="yes">JSON feed בזמן אמת</li>
-        <li class="yes">אינטגרציה עם מערכות חיצוניות</li>
+        <li class="yes" data-i18n="feat_api_key">API Key אישי</li>
+        <li class="yes" data-i18n="feat_realtime_json">JSON feed בזמן אמת</li>
+        <li class="yes" data-i18n="feat_integrations">אינטגרציה עם מערכות חיצוניות</li>
       </ul>
       {% if current_plan == 'api' %}
-        <div class="current-badge">התוכנית הנוכחית שלך</div>
-      {% elif stripe_ok %}
-        <button class="plan-btn btn-api" onclick="subscribe('api')">הירשם עכשיו</button>
+        <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
       {% else %}
-        <button class="plan-btn btn-api" disabled>Stripe לא מוגדר</button>
+        <button class="plan-btn btn-api" onclick="requestPlan('api')" data-i18n="btn_contact">צור קשר לשדרוג</button>
       {% endif %}
     </div>
   </div>
 
   {% if current_plan == 'api' %}
   <div class="api-key-box">
-    <h3>🔑 ה-API Key שלך</h3>
+    <h3>🔑 <span data-i18n="api_key_title">ה-API Key שלך</span></h3>
     <div class="key-row">
       <div class="key-val" id="apiKeyVal">{{ api_key or '—' }}</div>
-      <button class="btn-sm" onclick="copyKey()">העתק</button>
-      <button class="btn-sm" onclick="regenKey()">צור מחדש</button>
+      <button class="btn-sm" onclick="copyKey()" data-i18n="btn_copy">העתק</button>
+      <button class="btn-sm" onclick="regenKey()" data-i18n="btn_regen">צור מחדש</button>
     </div>
     <p style="font-size:11px;color:var(--muted);margin-top:8px">
-      שימוש: <code style="color:var(--accent)">GET /api/v1/feed?api_key=YOUR_KEY</code>
+      <span data-i18n="api_usage">שימוש:</span> <code style="color:var(--accent)">GET /api/v1/feed?api_key=YOUR_KEY</code>
     </p>
   </div>
   {% endif %}
 
-  {% if stripe_portal_ok and current_plan != 'free' %}
-  <div style="text-align:center;margin-top:8px">
-    <button class="btn-sm" onclick="openPortal()">⚙️ נהל מנוי / בטל</button>
-  </div>
-  {% endif %}
+  <div id="requestMsg"></div>
 </div>
 
 <script>
-async function subscribe(plan) {
-  const r = await fetch('/api/stripe/create-checkout', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({plan})
-  });
-  const d = await r.json();
-  if (d.url) window.location.href = d.url;
-  else alert(d.message || 'שגיאה ביצירת checkout');
+const PLANG = {
+  he: {
+    title: 'תוכניות PolyBot', back: 'חזרה לדאשבורד',
+    hero_title: 'בחר תוכנית שמתאימה לך',
+    hero_sub: 'כל התוכניות כוללות גישה לדאשבורד. שדרג לקבל נתונים בזמן אמת, Analytics ו-AI.',
+    per_month: '/חודש', current_plan: 'התוכנית הנוכחית שלך', most_popular: 'הכי פופולרי',
+    btn_contact: 'צור קשר לשדרוג', btn_copy: 'העתק', btn_regen: 'צור מחדש',
+    api_key_title: 'ה-API Key שלך', api_usage: 'שימוש:',
+    feat_dashboard: 'גישה לדאשבורד', feat_free_delay: 'עיכוב 10 דקות בנתונים',
+    feat_free_limit: 'מקסימום 5 התראות בהיסטוריה', feat_watchlist: 'Watchlist עם גרפים',
+    feat_realtime: 'נתונים בזמן אמת', feat_full_history: 'היסטוריה מלאה',
+    feat_filters: 'הגדרות פילטר', feat_all_basic: 'הכל מ-Basic',
+    feat_analytics: 'Analytics — גרפי מחיר', feat_ai_chat: 'AI Chat בעברית',
+    feat_ai_alerts: 'סיכום AI בהתראות טלגרם', feat_all_pro: 'הכל מ-Pro',
+    feat_api_key: 'API Key אישי', feat_realtime_json: 'JSON feed בזמן אמת',
+    feat_integrations: 'אינטגרציה עם מערכות חיצוניות',
+    request_sent: '✅ בקשתך נשלחה! ניצור איתך קשר בקרוב.',
+    request_err: 'שגיאה בשליחת הבקשה. נסה שוב.',
+    confirm_regen: 'לצור API Key חדש? המפתח הישן יפסיק לעבוד.',
+    copied: 'API Key הועתק',
+  },
+  en: {
+    title: 'PolyBot Plans', back: 'Back to Dashboard',
+    hero_title: 'Choose a plan that fits you',
+    hero_sub: 'All plans include dashboard access. Upgrade for real-time data, Analytics & AI.',
+    per_month: '/month', current_plan: 'Your current plan', most_popular: 'Most Popular',
+    btn_contact: 'Contact to Upgrade', btn_copy: 'Copy', btn_regen: 'Regenerate',
+    api_key_title: 'Your API Key', api_usage: 'Usage:',
+    feat_dashboard: 'Dashboard access', feat_free_delay: '10-minute data delay',
+    feat_free_limit: 'Max 5 alerts in history', feat_watchlist: 'Watchlist with charts',
+    feat_realtime: 'Real-time data', feat_full_history: 'Full alert history',
+    feat_filters: 'Filter settings', feat_all_basic: 'Everything in Basic',
+    feat_analytics: 'Analytics — price charts', feat_ai_chat: 'AI Chat',
+    feat_ai_alerts: 'AI summary in Telegram alerts', feat_all_pro: 'Everything in Pro',
+    feat_api_key: 'Personal API Key', feat_realtime_json: 'Real-time JSON feed',
+    feat_integrations: 'External integrations',
+    request_sent: "✅ Request sent! We'll contact you via Telegram shortly.",
+    request_err: 'Error sending request. Please try again.',
+    confirm_regen: 'Generate a new API Key? The old key will stop working.',
+    copied: 'API Key copied',
+  }
+};
+let curLang = localStorage.getItem('polybot_lang') || 'he';
+function pt(k) { return (PLANG[curLang]||{})[k] || PLANG.he[k] || k; }
+function toggleLang() {
+  curLang = curLang === 'he' ? 'en' : 'he';
+  localStorage.setItem('polybot_lang', curLang);
+  applyPLang();
 }
-
-async function openPortal() {
-  const r = await fetch('/api/stripe/portal', {method: 'POST'});
-  const d = await r.json();
-  if (d.url) window.location.href = d.url;
-  else alert(d.message || 'שגיאה בפתיחת פורטל');
+function applyPLang() {
+  document.documentElement.lang = curLang;
+  document.documentElement.dir = curLang === 'he' ? 'rtl' : 'ltr';
+  document.getElementById('langToggle').textContent = curLang === 'he' ? 'EN' : 'HE';
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = pt(el.dataset.i18n); });
 }
-
+async function requestPlan(plan) {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  const msgEl = document.getElementById('requestMsg');
+  try {
+    const r = await fetch('/api/request-upgrade', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({plan})
+    });
+    const d = await r.json();
+    msgEl.textContent = d.ok ? pt('request_sent') : pt('request_err');
+    msgEl.style.cssText = d.ok
+      ? 'display:block;padding:12px;border-radius:8px;background:rgba(63,185,80,.1);border:1px solid #3fb950;color:#3fb950;text-align:center;margin-top:16px'
+      : 'display:block;padding:12px;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid #f85149;color:#f85149;text-align:center;margin-top:16px';
+    setTimeout(() => { msgEl.style.display = 'none'; btn.disabled = false; }, 5000);
+  } catch(e) { btn.disabled = false; }
+}
 function copyKey() {
-  const val = document.getElementById('apiKeyVal').textContent;
-  navigator.clipboard.writeText(val).then(() => alert('API Key הועתק'));
+  navigator.clipboard.writeText(document.getElementById('apiKeyVal').textContent)
+    .then(() => alert(pt('copied')));
 }
-
 async function regenKey() {
-  if (!confirm('לצור API Key חדש? המפתח הישן יפסיק לעבוד.')) return;
+  if (!confirm(pt('confirm_regen'))) return;
   const r = await fetch('/api/stripe/regen-key', {method: 'POST'});
   const d = await r.json();
   if (d.api_key) document.getElementById('apiKeyVal').textContent = d.api_key;
 }
+applyPLang();
 </script>
 </body>
 </html>"""
@@ -2164,26 +2288,39 @@ async function regenKey() {
 @app.route("/pricing")
 @login_required
 def pricing():
-    stripe_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
-    stripe_ok = bool(stripe_key)
-    stripe_portal_ok = bool(current_user.stripe_customer_id)
     msg = request.args.get("msg", "")
     msg_cls = "msg-ok" if request.args.get("ok") else "msg-err"
-    if request.args.get("success"):
-        msg = "✅ תשלום הצליח! התוכנית שלך עודכנה."
-        msg_cls = "msg-ok"
-    elif request.args.get("cancel"):
-        msg = "התשלום בוטל."
-        msg_cls = "msg-err"
     return render_template_string(
         _PRICING_HTML,
         current_plan=current_user.plan,
         api_key=current_user.api_key,
-        stripe_ok=stripe_ok,
-        stripe_portal_ok=stripe_portal_ok,
         msg=msg,
         msg_cls=msg_cls,
     )
+
+
+@app.route("/api/request-upgrade", methods=["POST"])
+@login_required
+def api_request_upgrade():
+    data = request.get_json(force=True, silent=True) or {}
+    plan = data.get("plan", "")
+    if plan not in ("basic", "pro", "api"):
+        return jsonify({"ok": False, "message": "Invalid plan"}), 400
+    plan_labels = {"basic": "Basic ($15/mo)", "pro": "Pro ($39/mo)", "api": "API ($99/mo)"}
+    text = (
+        f"💎 <b>Upgrade Request</b>\n\n"
+        f"👤 <code>{current_user.email}</code>\n"
+        f"📋 Plan: <b>{plan_labels[plan]}</b>\n"
+        f"📍 Current: {current_user.plan}"
+    )
+    with store._lock:
+        alerter = store._alerter
+    if alerter:
+        try:
+            alerter._send_message(text)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "message": "Request sent!"})
 
 
 # ---------------------------------------------------------------------------
