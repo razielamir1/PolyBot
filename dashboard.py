@@ -310,12 +310,31 @@ _ADMIN_HTML = """<!DOCTYPE html>
 
   <!-- Users list -->
   <div class="card">
-    <h2>משתמשים קיימים ({{ users|length }})</h2>
+    <h2>משתמשים קיימים (<span id="userCount">{{ users|length }}</span>)</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="searchInput" placeholder="🔍 חיפוש לפי אימייל..."
+             oninput="filterUsers()"
+             style="flex:1;min-width:180px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+      <select id="filterRole" onchange="filterUsers()"
+              style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+        <option value="">כל התפקידים</option>
+        <option value="admin">Admin</option>
+        <option value="viewer">Viewer</option>
+      </select>
+      <select id="filterPlan" onchange="filterUsers()"
+              style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+        <option value="">כל התוכניות</option>
+        <option value="free">Free</option>
+        <option value="basic">Basic</option>
+        <option value="pro">Pro</option>
+        <option value="api">API</option>
+      </select>
+    </div>
     <table>
       <thead><tr>
         <th>אימייל</th><th>תפקיד</th><th>תוכנית</th><th>אנליטיקס</th><th>AI Chat</th><th>נוצר</th><th>פעולות</th>
       </tr></thead>
-      <tbody>
+      <tbody id="usersTableBody">
       {% for u in users %}
       <tr>
         <td>
@@ -377,6 +396,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
       {% endfor %}
       </tbody>
     </table>
+    <div id="noResults" style="display:none;padding:14px 0;text-align:center;color:var(--muted);font-size:13px">לא נמצאו משתמשים</div>
   </div>
   <!-- AI Admin command -->
   <div class="card">
@@ -405,6 +425,27 @@ _ADMIN_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function filterUsers() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const role = document.getElementById('filterRole').value;
+  const plan = document.getElementById('filterPlan').value;
+  const rows = document.querySelectorAll('#usersTableBody tr');
+  let visible = 0;
+  rows.forEach(row => {
+    const email = (row.querySelector('td:first-child')?.textContent || '').toLowerCase();
+    const roleTd = (row.querySelector('td:nth-child(2) .badge')?.textContent || '').toLowerCase();
+    const planSel = row.querySelector('select[name="plan"]');
+    const planVal = planSel ? planSel.value : '';
+    const matchQ = !q || email.includes(q);
+    const matchRole = !role || roleTd === role;
+    const matchPlan = !plan || planVal === plan;
+    row.style.display = (matchQ && matchRole && matchPlan) ? '' : 'none';
+    if (matchQ && matchRole && matchPlan) visible++;
+  });
+  document.getElementById('userCount').textContent = visible;
+  document.getElementById('noResults').style.display = visible === 0 ? 'block' : 'none';
+}
+
 async function loadMuted() {
   const r = await fetch('/api/muted');
   const labels = await r.json();

@@ -189,12 +189,20 @@ class TelegramAlerter:
             "text": text,
             "parse_mode": "HTML",
         }
-        try:
-            resp = self.session.post(url, json=payload, timeout=10)
-            if resp.status_code != 200:
-                logger.error("Telegram API error %s: %s", resp.status_code, resp.text)
+        for attempt in range(3):
+            try:
+                resp = self.session.post(url, json=payload, timeout=10)
+                if resp.status_code == 200:
+                    return True
+                if resp.status_code == 429:
+                    retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                    logger.warning("Telegram rate limit — waiting %ds (attempt %d/3)", retry_after, attempt + 1)
+                    time.sleep(retry_after)
+                    continue
+                logger.error("Telegram API error %s: %s", resp.status_code, resp.text[:200])
                 return False
-            return True
-        except requests.exceptions.RequestException as exc:
-            logger.error("Failed to send Telegram message: %s", exc)
-            return False
+            except requests.exceptions.RequestException as exc:
+                logger.error("Failed to send Telegram message (attempt %d/3): %s", attempt + 1, exc)
+                if attempt < 2:
+                    time.sleep(2)
+        return False

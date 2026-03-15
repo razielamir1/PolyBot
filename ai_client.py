@@ -26,8 +26,19 @@ def _get_model():
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
-        _model = genai.GenerativeModel("gemini-2.0-flash")
-        logger.info("Gemini AI initialized.")
+        for model_name in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"):
+            try:
+                _model = genai.GenerativeModel(model_name)
+                # Quick validation
+                _model.generate_content("hi", generation_config={"max_output_tokens": 1})
+                logger.info("Gemini AI initialized with model: %s", model_name)
+                break
+            except Exception:
+                _model = None
+                continue
+        if _model is None:
+            logger.warning("All Gemini models failed to initialize")
+            return None
     except Exception as exc:
         logger.warning("Failed to init Gemini: %s", exc)
         return None
