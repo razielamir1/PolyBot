@@ -5,14 +5,18 @@ The module-level `store` singleton is written by the main loop thread and read b
 threads. All public methods acquire an RLock internally, so callers never need to manage locking.
 """
 
+import os
 import threading
 import time as _time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+_TZ_OFFSET = timedelta(hours=int(os.getenv("DISPLAY_TIMEZONE_OFFSET", "2")))
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+    tz = timezone(_TZ_OFFSET)
+    return datetime.now(tz).strftime("%H:%M:%S")
 
 
 class DashboardStore:
@@ -84,6 +88,7 @@ class DashboardStore:
         prices: dict[str, float],
         token_to_label: dict[str, str],
         token_to_event_label: dict[str, str] | None = None,
+        token_to_category: dict[str, str] | None = None,
     ) -> None:
         with self._lock:
             self._bot_status["cycle_count"] = cycle
@@ -93,6 +98,7 @@ class DashboardStore:
             for token_id, price in prices.items():
                 lbl = token_to_label.get(token_id, token_id[:12] + "…")
                 ev_lbl = (token_to_event_label or {}).get(token_id, lbl)
+                cat = (token_to_category or {}).get(token_id, "Other")
                 entry = self._market_stats.setdefault(
                     token_id,
                     {
@@ -101,11 +107,13 @@ class DashboardStore:
                         "current_price": price,
                         "pct_change": None,
                         "alert_count": 0,
+                        "category": cat,
                     },
                 )
                 entry["current_price"] = price
                 entry["label"] = lbl
                 entry["event_label"] = ev_lbl
+                entry["category"] = cat
 
                 # Record price history for hot markets only
                 if token_id in self._watched_tokens:
@@ -187,7 +195,7 @@ class DashboardStore:
             ok = alerter._send_message(
                 "🔔 <b>PolyBot Dashboard Test</b>\n\nהבוט פעיל ומחובר תקין ✅"
             )
-            msg = "הודעת בדיקה נשלחה לטלגרם ✅" if ok else "שליחה נכשלה ❌ — בדוק token ו-chat_id"
+            msg = "הודעת בדיקה נשלחה לטלגרם ✅" if ok else "שליחה נכשלה ❌ — rate limit של טלגרם, נסה שוב בעוד כמה שניות"
             self.set_action_msg(msg)
             return {"ok": ok, "message": msg}
         except Exception as e:
@@ -264,9 +272,28 @@ class DashboardStore:
                     "alert_count": stats.get("alert_count", 0),
                     "url": self._token_url.get(token_id, ""),
                     "history_len": len(self._price_history.get(token_id, [])),
+                    "category": stats.get("category", "Other"),
                 })
             result.sort(key=lambda x: x["alert_count"], reverse=True)
             return result
+
+    def get_all_markets(self) -> list[dict]:
+        """Return all tracked market summaries (not just hot), sorted by alert_count desc. Capped at 100."""
+        with self._lock:
+            result = []
+            for token_id, stats in self._market_stats.items():
+                result.append({
+                    "token_id": token_id,
+                    "label": stats.get("label", token_id[:12] + "…"),
+                    "event_label": stats.get("event_label", stats.get("label", "")),
+                    "current_price": stats.get("current_price"),
+                    "pct_change": stats.get("pct_change"),
+                    "alert_count": stats.get("alert_count", 0),
+                    "url": self._token_url.get(token_id, ""),
+                    "category": stats.get("category", "Other"),
+                })
+            result.sort(key=lambda x: x["alert_count"], reverse=True)
+            return result[:100]
 
     def get_chart_data(self, token_id: str) -> dict | None:
         """Return price history and alert markers for one hot market."""

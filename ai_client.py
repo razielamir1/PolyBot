@@ -92,17 +92,20 @@ def chat_with_markets(user_message: str, market_context: list[dict]) -> str:
         return "⚠️ AI לא זמין — בדוק GEMINI_API_KEY"
 
     ctx_lines = []
-    for m in market_context[:40]:
+    for m in market_context[:80]:
         price_pct = round(m.get("current_price", 0) * 100, 1)
+        url = m.get("url", "")
         ctx_lines.append(
             f"• {m.get('event_label', '')} | {m.get('label', '')} "
             f"| מחיר: {price_pct}% | התראות: {m.get('alert_count', 0)}"
+            + (f" | קישור: {url}" if url else "")
         )
     context = "\n".join(ctx_lines) if ctx_lines else "אין נתוני שוק זמינים כרגע."
 
     prompt = (
-        f"אתה עוזר AI לפלטפורמת Polymarket — שוק חיזויים. ענה בעברית בצורה ברורה.\n"
-        f"הנה השווקים הפעילים כרגע (אלה שיצרו התראות):\n{context}\n\n"
+        f"אתה עוזר AI לפלטפורמת Polymarket — פלטפורמת ניחושים. ענה בעברית בצורה ברורה.\n"
+        f"הנה כל הניחושים הפעילים כרגע:\n{context}\n\n"
+        f"כשתזכיר ניחוש ספציפי, כלול את קישור הפולימרקט שלו אם זמין.\n"
         f"שאלת המשתמש: {user_message}"
     )
 

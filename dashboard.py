@@ -29,7 +29,7 @@ import logging
 import os
 import threading
 import time as _time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
@@ -790,7 +790,7 @@ const LANG = {
     col_max_price:'מחיר גבוה ביותר באירוע (%)',
     col_max_change:'שינוי מקסימלי בחלון 5 דק׳',
     col_alerts_sent:'התראות שנשלחו לטלגרם',
-    col_time:'שעה (UTC)', col_jump:'קפיצה',
+    col_time:'שעה', col_jump:'קפיצה',
     col_price_before:'מחיר לפני', col_price_after:'מחיר אחרי',
     btn_prev:'◀ הקודם', btn_next:'הבא ▶',
     btn_cycle:'⚡ הפעל מחזור עכשיו', btn_cycle_load:'⚡ מפעיל...',
@@ -818,7 +818,7 @@ const LANG = {
     col_max_price:'Highest Price in Event (%)',
     col_max_change:'Max Change (5 min window)',
     col_alerts_sent:'Telegram Alerts Sent',
-    col_time:'Time (UTC)', col_jump:'Change',
+    col_time:'Time', col_jump:'Change',
     col_price_before:'Price Before', col_price_after:'Price After',
     btn_prev:'◀ Prev', btn_next:'Next ▶',
     btn_cycle:'⚡ Force Cycle Now', btn_cycle_load:'⚡ Running...',
@@ -835,7 +835,7 @@ const LANG = {
     mute_event:'Mute this event', open_poly:'Open on Polymarket',
   }
 };
-let curLang = localStorage.getItem('polybot_lang') || 'he';
+let curLang = localStorage.getItem('polybot_lang') || 'en';
 function t(k) { return (LANG[curLang]||{})[k] || LANG.he[k] || k; }
 function toggleLang() {
   curLang = curLang === 'he' ? 'en' : 'he';
@@ -1049,7 +1049,7 @@ async function fetchFeed() {
     const newItems = items.filter(a => !knownFeedIds.has(a.time + a.token_id));
     if (!newItems.length) return;
     if (feedDiv.querySelector('.empty')) feedDiv.innerHTML = '';
-    newItems.forEach(a => {
+    [...newItems].reverse().forEach(a => {
       knownFeedIds.add(a.time + a.token_id);
       totalAlerts++;
       const el = document.createElement('div');
@@ -1335,6 +1335,9 @@ _ANALYTICS_HTML = """<!DOCTYPE html>
   .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;}
   .card h2{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;
            letter-spacing:.5px;margin-bottom:10px;}
+  .cat-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--fg-muted);font-size:11px;cursor:pointer;}
+  .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .cat-btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
   .market-item{padding:10px 12px;border-radius:6px;border:1px solid var(--border);
                cursor:pointer;background:var(--bg);margin-bottom:6px;transition:border-color .15s;}
   .market-item:hover{border-color:var(--accent);}
@@ -1369,6 +1372,14 @@ _ANALYTICS_HTML = """<!DOCTYPE html>
   <div class="sidebar">
     <div class="card" style="flex:1">
       <h2>שווקים שהתריעו <span id="countBadge"></span></h2>
+      <div id="catFilter" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+        <button class="cat-btn active" onclick="setCat('')">All</button>
+        <button class="cat-btn" onclick="setCat('Politics')">Politics</button>
+        <button class="cat-btn" onclick="setCat('Sports')">Sports</button>
+        <button class="cat-btn" onclick="setCat('Crypto')">Crypto</button>
+        <button class="cat-btn" onclick="setCat('Entertainment')">Entertainment</button>
+        <button class="cat-btn" onclick="setCat('Other')">Other</button>
+      </div>
       <div id="marketList"><div class="empty">ממתין לנתונים...</div></div>
     </div>
   </div>
@@ -1394,6 +1405,15 @@ const fmtPct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
 let hotMarkets = [];
 let selectedToken = null;
 let chartInstance = null;
+let activeCat = '';
+
+function setCat(cat) {
+  activeCat = cat;
+  document.querySelectorAll('#catFilter .cat-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === (cat || 'All'));
+  });
+  renderMarketList();
+}
 
 async function loadHotMarkets() {
   try {
@@ -1413,7 +1433,12 @@ function renderMarketList() {
     el.innerHTML = '<div class="empty">עדיין אין שווקים שהתריעו</div>';
     return;
   }
-  el.innerHTML = hotMarkets.map(m => {
+  const filtered = activeCat ? hotMarkets.filter(m => m.category === activeCat) : hotMarkets;
+  if (!filtered.length) {
+    el.innerHTML = `<div class="empty">No ${activeCat} markets yet</div>`;
+    return;
+  }
+  el.innerHTML = filtered.map(m => {
     const ev = m.event_label || m.label;
     const out = (m.label && m.label !== ev) ? m.label : null;
     const active = m.token_id === selectedToken ? ' active' : '';
@@ -1599,7 +1624,7 @@ _AI_CHAT_HTML = """<!DOCTYPE html>
   <div class="msg msg-system">שלום! אני יכול לענות על שאלות לגבי השווקים הפעילים. מה תרצה לדעת?</div>
 </div>
 <div class="input-bar">
-  <textarea id="msgInput" placeholder="שאל שאלה על שוק, תחזה, נושא..." rows="1"
+  <textarea id="msgInput" placeholder="Ask about a prediction, topic, market..." rows="1"
             onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
   <button class="send-btn" id="sendBtn" onclick="sendMsg()">שלח ▶</button>
 </div>
@@ -1952,7 +1977,7 @@ def api_ai_chat():
     message = (data.get("message") or "").strip()
     if not message:
         return jsonify({"reply": "שלח שאלה תחילה."}), 400
-    market_context = store.get_hot_markets()
+    market_context = store.get_all_markets()
     reply = ai_client.chat_with_markets(message, market_context)
     return jsonify({"reply": reply})
 
@@ -2280,7 +2305,7 @@ const PLANG = {
     copied: 'API Key copied',
   }
 };
-let curLang = localStorage.getItem('polybot_lang') || 'he';
+let curLang = localStorage.getItem('polybot_lang') || 'en';
 function pt(k) { return (PLANG[curLang]||{})[k] || PLANG.he[k] || k; }
 function toggleLang() {
   curLang = curLang === 'he' ? 'en' : 'he';
@@ -2298,13 +2323,21 @@ async function requestPlan(plan) {
   btn.disabled = true;
   const msgEl = document.getElementById('requestMsg');
   try {
-    const r = await fetch('/api/request-upgrade', {
+    // Try NOWPayments first
+    const r = await fetch('/api/nowpayments/create-subscription', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({plan})
     });
     const d = await r.json();
-    msgEl.textContent = d.ok ? pt('request_sent') : pt('request_err');
-    msgEl.style.cssText = d.ok
+    if (d.url) { window.location.href = d.url; return; }
+    // Fallback: Telegram request
+    const r2 = await fetch('/api/request-upgrade', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({plan})
+    });
+    const d2 = await r2.json();
+    msgEl.textContent = d2.ok ? pt('request_sent') : pt('request_err');
+    msgEl.style.cssText = d2.ok
       ? 'display:block;padding:12px;border-radius:8px;background:rgba(63,185,80,.1);border:1px solid #3fb950;color:#3fb950;text-align:center;margin-top:16px'
       : 'display:block;padding:12px;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid #f85149;color:#f85149;text-align:center;margin-top:16px';
     setTimeout(() => { msgEl.style.display = 'none'; btn.disabled = false; }, 5000);
@@ -2362,6 +2395,80 @@ def api_request_upgrade():
         except Exception:
             pass
     return jsonify({"ok": True, "message": "Request sent!"})
+
+
+# ---------------------------------------------------------------------------
+# NOWPayments routes
+# ---------------------------------------------------------------------------
+
+@app.route("/api/nowpayments/create-subscription", methods=["POST"])
+@login_required
+def api_nowpayments_create_subscription():
+    key = os.getenv("NOWPAYMENTS_API_KEY", "").strip()
+    if not key:
+        return jsonify({"ok": False, "message": "not_configured"}), 503
+    data = request.get_json(force=True, silent=True) or {}
+    plan = data.get("plan", "")
+    if plan not in ("basic", "pro", "api"):
+        return jsonify({"ok": False}), 400
+    plan_id = os.getenv(f"NOWPAYMENTS_PLAN_{plan.upper()}", "").strip()
+    if not plan_id:
+        return jsonify({"ok": False, "message": "plan_id not set"}), 503
+    payload = {
+        "subscription_plan_id": plan_id,
+        "email": current_user.email,
+        "order_id": f"{current_user.id}:{plan}",
+    }
+    try:
+        r = requests.post(
+            "https://api.nowpayments.io/v1/subscriptions",
+            json=payload,
+            headers={"x-api-key": key, "Content-Type": "application/json"},
+            timeout=15,
+        )
+        d = r.json()
+    except Exception as exc:
+        logger.warning("NOWPayments API error: %s", exc)
+        return jsonify({"ok": False, "message": str(exc)}), 500
+    url = d.get("pay_url") or d.get("invoice_url") or d.get("url")
+    if url:
+        return jsonify({"ok": True, "url": url})
+    return jsonify({"ok": False, "message": str(d)}), 500
+
+
+@app.route("/api/nowpayments/webhook", methods=["POST"])
+def api_nowpayments_webhook():
+    import hashlib
+    import hmac as _hmac
+    import json as _json
+    ipn_secret = os.getenv("NOWPAYMENTS_IPN_SECRET", "").strip()
+    body = request.get_json(force=True, silent=True) or {}
+    if ipn_secret:
+        sig = request.headers.get("x-nowpayments-sig", "")
+        sorted_str = _json.dumps(body, sort_keys=True, separators=(",", ":"))
+        expected = _hmac.new(ipn_secret.encode(), sorted_str.encode(), hashlib.sha512).hexdigest()
+        if not _hmac.compare_digest(expected, sig):
+            return "", 400
+    status = body.get("payment_status", "")
+    order_id = body.get("order_id", "")
+    subscription_id = str(body.get("subscription_id") or body.get("id") or "")
+    if ":" not in order_id:
+        return "", 200
+    user_id_str, plan = order_id.split(":", 1)
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        return "", 200
+    if status == "confirmed":
+        expires = (datetime.now(timezone.utc) + timedelta(days=35)).isoformat()
+        db.update_user_plan(user_id, plan, expires)
+        if subscription_id:
+            db.update_nowpayments_subscription(user_id, subscription_id)
+        logger.info("NOWPayments: activated plan=%s for user_id=%s", plan, user_id)
+    elif status in ("failed", "expired"):
+        db.update_user_plan(user_id, "free")
+        logger.info("NOWPayments: revoked plan for user_id=%s (status=%s)", user_id, status)
+    return "", 200
 
 
 # ---------------------------------------------------------------------------
@@ -2446,7 +2553,7 @@ def api_stripe_webhook():
         plan = (obj.get("metadata") or {}).get("plan", "basic")
         customer_id = obj.get("customer", "")
         if user_id:
-            from datetime import timedelta
+
             expires = (datetime.now(timezone.utc) + timedelta(days=35)).isoformat()
             db.update_user_plan(user_id, plan, expires, customer_id)
             logger.info("Plan updated: user=%d plan=%s", user_id, plan)
@@ -2455,7 +2562,7 @@ def api_stripe_webhook():
         customer_id = obj.get("customer", "")
         user_data = db.get_user_by_stripe_customer(customer_id)
         if user_data:
-            from datetime import timedelta
+
             expires = (datetime.now(timezone.utc) + timedelta(days=35)).isoformat()
             db.update_user_plan(user_data["id"], user_data.get("plan", "basic"), expires)
 

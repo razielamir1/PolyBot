@@ -43,9 +43,9 @@ def _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume=0.0
         min_volume=min_volume,
         top_n=top_n,
     )
-    token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+    token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date, token_to_category = \
         fetcher.extract_token_ids(events, min_market_volume=min_market_volume)
-    return events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date
+    return events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date, token_to_category
 
 
 def main() -> None:
@@ -100,7 +100,7 @@ def main() -> None:
 
     # ── Discover high-volume Politics events ────────────────────────
     logger.info(f"Scanning for Politics events (Vol > {_fmt_volume(min_volume)})...")
-    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date, token_to_category = \
         _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume)
 
     if not token_ids:
@@ -136,7 +136,7 @@ def main() -> None:
                     logger.info(f"Threshold updated to {threshold_pct}%")
                 if store.consume_refresh_request():
                     logger.info("Dashboard triggered market refresh — re-scanning...")
-                    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date = \
+                    events, token_ids, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date, token_to_category = \
                         _scan_markets(fetcher, fetch_limit, min_volume, top_n, min_market_volume)
                     states = _make_states(threshold_pct)
                     logger.info(f"Refresh complete: {len(token_ids)} tokens tracked.")
@@ -183,7 +183,7 @@ def main() -> None:
 
                 if dashboard_enabled:
                     from dashboard_store import store
-                    store.record_cycle(cycle, prices, token_to_label, token_to_event_label)
+                    store.record_cycle(cycle, prices, token_to_label, token_to_event_label, token_to_category)
                     if alerts:
                         store.record_alerts(alerts)
             else:

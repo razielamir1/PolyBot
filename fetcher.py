@@ -131,11 +131,30 @@ class Fetcher:
     # ------------------------------------------------------------------
     # Token extraction
     # ------------------------------------------------------------------
+    @staticmethod
+    def _infer_category(tags: str, title: str) -> str:
+        combined = (tags + " " + title).lower()
+        if any(k in combined for k in ("politics", "election", "president", "senate", "congress",
+                                        "trump", "democrat", "republican", "parliament", "vote",
+                                        "prime minister", "governor", "mayor", "referendum")):
+            return "Politics"
+        if any(k in combined for k in ("nba", "nfl", "nhl", "mlb", "soccer", "football",
+                                        "basketball", "sport", "tennis", "golf", "ufc",
+                                        "boxing", "olympics", "world cup", "champions")):
+            return "Sports"
+        if any(k in combined for k in ("bitcoin", "crypto", "eth", "sol", "btc", "token",
+                                        "defi", "nft", "blockchain", "binance", "coinbase")):
+            return "Crypto"
+        if any(k in combined for k in ("entertainment", "oscar", "grammy", "movie", "album",
+                                        "tv", "celebrity", "award", "music", "film", "actor")):
+            return "Entertainment"
+        return "Other"
+
     def extract_token_ids(
         self,
         events: list[dict[str, Any]],
         min_market_volume: float = 0.0,
-    ) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str], dict[str, float], dict[str, str]]:
+    ) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str], dict[str, float], dict[str, str], dict[str, str]]:
         """Extract CLOB token IDs from the child markets of each event."""
         token_ids: list[str] = []
         token_to_label: dict[str, str] = {}
@@ -143,11 +162,14 @@ class Fetcher:
         token_to_event_label: dict[str, str] = {}
         token_to_mkt_volume: dict[str, float] = {}
         token_to_end_date: dict[str, str] = {}
+        token_to_category: dict[str, str] = {}
 
         for event in events:
             title = event.get("title", "Unknown event")
             slug = event.get("slug", "")
+            tags = str(event.get("tags", "") or "")
             url = f"https://polymarket.com/event/{slug}" if slug else ""
+            category = self._infer_category(tags, title)
             markets = event.get("markets", [])
             if not isinstance(markets, list):
                 continue
@@ -178,6 +200,7 @@ class Fetcher:
                             token_to_event_label[tid_str] = title
                             token_to_mkt_volume[tid_str] = market_vol
                             token_to_end_date[tid_str] = end_date
+                            token_to_category[tid_str] = category
 
         seen: set[str] = set()
         unique: list[str] = []
@@ -185,7 +208,7 @@ class Fetcher:
             if tid not in seen:
                 seen.add(tid)
                 unique.append(tid)
-        return unique, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date
+        return unique, token_to_label, token_to_url, token_to_event_label, token_to_mkt_volume, token_to_end_date, token_to_category
 
     # ------------------------------------------------------------------
     # Price fetching (CLOB API)
