@@ -686,6 +686,35 @@ _HTML = """<!DOCTYPE html>
   .empty{color:var(--muted);padding:14px 0;text-align:center;}
 
   @media(max-width:680px){.grid{grid-template-columns:1fr;}.card-full{grid-column:1;}}
+
+  /* Onboarding modal */
+  #onboardOverlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;}
+  #onboardBox{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:32px 28px;
+              max-width:480px;width:90%;position:relative;box-shadow:0 8px 40px rgba(0,0,0,.6);}
+  #onboardClose{position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);
+                font-size:18px;cursor:pointer;line-height:1;}
+  #onboardClose:hover{color:var(--text);}
+  .ob-step{display:none;}
+  .ob-step.active{display:block;}
+  .ob-icon{font-size:36px;margin-bottom:12px;}
+  .ob-title{font-size:18px;font-weight:700;margin-bottom:8px;}
+  .ob-body{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;}
+  .ob-body b{color:var(--text);}
+  .ob-body .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;
+                 background:rgba(88,166,255,.15);color:var(--accent);margin:1px;}
+  .ob-footer{display:flex;justify-content:space-between;align-items:center;}
+  .ob-dots{display:flex;gap:5px;}
+  .ob-dot{width:7px;height:7px;border-radius:50%;background:var(--border);transition:background .2s;}
+  .ob-dot.active{background:var(--accent);}
+  .ob-btns{display:flex;gap:8px;}
+  .ob-btn{padding:6px 18px;border-radius:6px;border:1px solid var(--border);background:var(--card);
+          color:var(--text);font-size:13px;font-weight:600;cursor:pointer;}
+  .ob-btn:hover{background:#21262d;}
+  .ob-btn-primary{background:var(--accent);color:#0d1117;border-color:var(--accent);}
+  .ob-btn-primary:hover{opacity:.9;background:var(--accent);}
+  .ob-upgrade{display:inline-block;margin-top:10px;padding:4px 14px;border-radius:6px;
+              background:rgba(240,136,62,.15);border:1px solid var(--orange);
+              color:var(--orange);font-size:12px;font-weight:600;text-decoration:none;}
 </style>
 </head>
 <body>
@@ -967,6 +996,8 @@ function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi, plan, c
       feed.insertBefore(note, feed.firstChild);
     }
   }
+  // Show onboarding tour on first visit
+  setTimeout(() => maybeShowOnboard(plan, canAnalytics, canAi, canRealtime), 800);
 }
 
 const PAGE_SIZE = 10;
@@ -1175,6 +1206,141 @@ fetchStatus();
 fetchFeed();
 setInterval(fetchStatus, 10000);
 setInterval(fetchFeed, 3000);
+
+// ── Onboarding ──────────────────────────────────────────────────────
+const OB_KEY = 'polybot_onboarded_v1';
+let obStep = 0;
+
+function buildOnboardingSlides(plan, canAnalytics, canAi, canRealtime) {
+  const slides = [
+    {
+      icon: '👋',
+      title: 'Welcome to PolyBot!',
+      body: `PolyBot monitors <b>Polymarket</b> — a real-money prediction market — and alerts you the moment any market moves significantly.<br><br>
+             This quick tour shows you what you're looking at and how to get the most out of it.`
+    },
+    {
+      icon: '⚡',
+      title: 'Live Alerts',
+      body: `The <b>Live Alerts</b> panel (top-right) updates every few seconds.<br><br>
+             Each item is a market that just moved by more than your threshold %. It shows the market name, % change, and the price before → after.<br><br>
+             Click <span class="pill">🔗</span> to open the market directly on Polymarket.`
+    },
+    {
+      icon: '📊',
+      title: 'Market Statistics',
+      body: `The table below shows all tracked markets, <b>grouped by event</b>.<br><br>
+             Columns: <b>Outcome</b> (Yes/No or a candidate), <b>Price</b> (current probability 0–100%), <b>5m Δ</b> (change in last 5 min), <b>10m Δ</b> (10 min), and <b>Alerts</b> (how many times it fired).<br><br>
+             Markets with alerts bubble to the top.`
+    },
+    {
+      icon: '🌐',
+      title: 'Category Filter & Settings',
+      body: `Use the <b>Filter by Category</b> buttons to show only Politics, Sports, Crypto, etc.<br><br>
+             In <b>Settings</b> you can set <b>keywords</b> (e.g. "Trump, BTC") so only relevant markets appear, and a <b>minimum % threshold</b> to hide small moves.<br><br>
+             Use <span class="pill">🔕</span> in Alert History to silence a specific event you don't care about.`
+    },
+    {
+      icon: '📲',
+      title: 'Telegram Alerts',
+      body: `You're connected to <b>@PolyOrBot</b> on Telegram.<br><br>
+             Every significant price spike sends a formatted message with the market name, % change, price, volume, and days until the market closes.<br><br>
+             ${canAi ? 'Your plan includes <b>AI summaries</b> — each alert explains <i>why</i> the market is moving.' : 'Upgrade to <b>Pro</b> to add AI-written context to every Telegram alert.'}`
+    },
+  ];
+
+  // Plan-specific last slide
+  if (plan === 'free' || !canRealtime) {
+    slides.push({
+      icon: '🆓',
+      title: 'Your Plan: Free',
+      body: `You have dashboard access, but data is delayed <b>10 minutes</b>.<br><br>
+             To see real-time price movements and not miss fast-moving markets, upgrade to <b>Basic</b>.<br><br>
+             <a class="ob-upgrade" href="/pricing">View Plans →</a>`
+    });
+  } else if (plan === 'basic') {
+    slides.push({
+      icon: '✅',
+      title: 'Your Plan: Basic',
+      body: `You have <b>real-time data</b>, full alert history, watchlist, and filter settings.<br><br>
+             Want interactive price charts and AI Chat? Upgrade to <b>Pro</b>.<br><br>
+             <a class="ob-upgrade" href="/pricing">View Plans →</a>`
+    });
+  } else if (plan === 'pro') {
+    slides.push({
+      icon: '🚀',
+      title: 'Your Plan: Pro',
+      body: `You have access to <b>Analytics</b> (price charts), <b>AI Chat</b> (ask anything about active markets), and AI summaries in Telegram alerts.<br><br>
+             Need programmatic API access? Check out the <b>API plan</b>.<br><br>
+             <a class="ob-upgrade" href="/pricing">View Plans →</a>`
+    });
+  } else if (plan === 'api') {
+    slides.push({
+      icon: '🔑',
+      title: 'Your Plan: API',
+      body: `You have full access including the <b>REST API</b>.<br><br>
+             Use <code style="color:var(--accent)">GET /api/v1/feed?api_key=YOUR_KEY</code> to integrate PolyBot alerts into any app, bot, or workflow.<br><br>
+             Find your API key on the <a href="/pricing" style="color:var(--accent)">Plans page</a>.`
+    });
+  } else {
+    slides.push({
+      icon: '💡',
+      title: "You're all set!",
+      body: `Explore the dashboard, set up your filters in <b>Settings</b>, and watch for live alerts.<br><br>
+             Questions? Use the <b>AI Chat</b> tab to ask about any active market.`
+    });
+  }
+  return slides;
+}
+
+let obSlides = [];
+
+function renderOnboard() {
+  const box = document.getElementById('onboardBox');
+  if (!box || !obSlides.length) return;
+  const s = obSlides[obStep];
+  const total = obSlides.length;
+  const dots = obSlides.map((_,i) => `<div class="ob-dot${i===obStep?' active':''}"></div>`).join('');
+  const isLast = obStep === total - 1;
+  box.innerHTML = `
+    <button id="onboardClose" onclick="closeOnboard()" title="Skip tour">✕</button>
+    <div class="ob-step active">
+      <div class="ob-icon">${s.icon}</div>
+      <div class="ob-title">${s.title}</div>
+      <div class="ob-body">${s.body}</div>
+      <div class="ob-footer">
+        <div class="ob-dots">${dots}</div>
+        <div class="ob-btns">
+          ${obStep > 0 ? '<button class="ob-btn" onclick="obNav(-1)">← Back</button>' : ''}
+          <button class="ob-btn ob-btn-primary" onclick="${isLast ? 'closeOnboard()' : 'obNav(1)'}">
+            ${isLast ? '✓ Got it!' : 'Next →'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function obNav(dir) {
+  obStep = Math.max(0, Math.min(obSlides.length - 1, obStep + dir));
+  renderOnboard();
+}
+
+function closeOnboard() {
+  localStorage.setItem(OB_KEY, '1');
+  const ov = document.getElementById('onboardOverlay');
+  if (ov) ov.remove();
+}
+
+function maybeShowOnboard(plan, canAnalytics, canAi, canRealtime) {
+  if (localStorage.getItem(OB_KEY)) return;
+  obSlides = buildOnboardingSlides(plan, canAnalytics, canAi, canRealtime);
+  obStep = 0;
+  const ov = document.createElement('div');
+  ov.id = 'onboardOverlay';
+  ov.innerHTML = '<div id="onboardBox"></div>';
+  document.body.appendChild(ov);
+  renderOnboard();
+}
 </script>
 </body>
 </html>"""
@@ -2175,11 +2341,19 @@ _PRICING_HTML = """<!DOCTYPE html>
   .plan-price{font-size:28px;font-weight:800;color:var(--accent);}
   .plan-price span{font-size:13px;font-weight:400;color:var(--muted);}
   .plan-features{list-style:none;display:flex;flex-direction:column;gap:7px;flex:1;}
-  .plan-features li{font-size:13px;color:var(--muted);display:flex;align-items:flex-start;gap:6px;}
+  .plan-features li{font-size:13px;color:var(--muted);display:flex;align-items:flex-start;gap:6px;position:relative;}
   .plan-features li.yes{color:var(--text);}
   .plan-features li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0;}
   .plan-features li.no::before{content:'✗';color:var(--red);}
   .plan-features li.no{color:var(--muted);}
+  .plan-features li[data-tip]{cursor:help;}
+  .plan-features li[data-tip]:hover::after{
+    content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:0;
+    background:#21262d;border:1px solid var(--border);color:var(--text);
+    padding:8px 12px;border-radius:7px;font-size:12px;line-height:1.55;
+    max-width:250px;width:max-content;z-index:20;pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);white-space:normal;}
+  .plan-features li[data-tip]:hover::before{z-index:1;}
   .plan-btn{width:100%;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:14px;
             cursor:pointer;margin-top:8px;transition:opacity .15s;}
   .plan-btn:hover{opacity:.85;}
@@ -2225,13 +2399,13 @@ _PRICING_HTML = """<!DOCTYPE html>
       <div class="plan-name">Free</div>
       <div class="plan-price">$0 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes" data-i18n="feat_dashboard">גישה לדאשבורד</li>
-        <li class="no" data-i18n="feat_free_delay">עיכוב 10 דקות בנתונים</li>
-        <li class="no" data-i18n="feat_free_limit">מקסימום 5 התראות בהיסטוריה</li>
-        <li class="no">Analytics</li>
-        <li class="no">AI Chat</li>
-        <li class="no" data-i18n="feat_watchlist">Watchlist עם גרפים</li>
-        <li class="no">REST API</li>
+        <li class="yes" data-i18n="feat_dashboard" data-tip="View live market prices, alerts, and stats on the web dashboard">גישה לדאשבורד</li>
+        <li class="no" data-i18n="feat_free_delay" data-tip="Prices update every 10 min instead of 30 sec — you may miss fast-moving markets">עיכוב 10 דקות בנתונים</li>
+        <li class="no" data-i18n="feat_free_limit" data-tip="Only the 5 most recent alerts are kept; older ones are deleted">מקסימום 5 התראות בהיסטוריה</li>
+        <li class="no" data-tip="Interactive price charts for markets that triggered alerts — see when and how fast a market moved">Analytics</li>
+        <li class="no" data-tip="Ask questions in plain English or Hebrew about any active market — AI answers with live data context">AI Chat</li>
+        <li class="no" data-i18n="feat_watchlist" data-tip="Pin specific markets and view their full price history as a graph">Watchlist עם גרפים</li>
+        <li class="no" data-tip="Programmatic access to PolyBot alerts via HTTP — for developers and trading bots">REST API</li>
       </ul>
       {% if current_plan == 'free' %}
         <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
@@ -2243,14 +2417,14 @@ _PRICING_HTML = """<!DOCTYPE html>
       <div class="plan-name">Basic</div>
       <div class="plan-price">$15 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes" data-i18n="feat_dashboard">גישה לדאשבורד</li>
-        <li class="yes" data-i18n="feat_realtime">נתונים בזמן אמת</li>
-        <li class="yes" data-i18n="feat_full_history">היסטוריה מלאה</li>
-        <li class="yes" data-i18n="feat_watchlist">Watchlist עם גרפים</li>
-        <li class="yes" data-i18n="feat_filters">הגדרות פילטר</li>
-        <li class="no">Analytics</li>
-        <li class="no">AI Chat</li>
-        <li class="no">REST API</li>
+        <li class="yes" data-i18n="feat_dashboard" data-tip="View live market prices, alerts, and stats on the web dashboard">גישה לדאשבורד</li>
+        <li class="yes" data-i18n="feat_realtime" data-tip="Prices refresh every ~30 seconds — see market movements as they happen, not 10 minutes later">נתונים בזמן אמת</li>
+        <li class="yes" data-i18n="feat_full_history" data-tip="All past alerts are saved — go back and review any price spike that happened since you joined">היסטוריה מלאה</li>
+        <li class="yes" data-i18n="feat_watchlist" data-tip="Pin specific markets and view their full price history as a graph">Watchlist עם גרפים</li>
+        <li class="yes" data-i18n="feat_filters" data-tip="Set keywords (e.g. 'Trump', 'BTC') or a minimum % threshold — only see alerts that matter to you">הגדרות פילטר</li>
+        <li class="no" data-tip="Interactive price charts for markets that triggered alerts — see when and how fast a market moved">Analytics</li>
+        <li class="no" data-tip="Ask questions in plain English or Hebrew about any active market — AI answers with live data context">AI Chat</li>
+        <li class="no" data-tip="Programmatic access to PolyBot alerts via HTTP — for developers and trading bots">REST API</li>
       </ul>
       {% if current_plan == 'basic' %}
         <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
@@ -2265,11 +2439,11 @@ _PRICING_HTML = """<!DOCTYPE html>
       <div class="plan-name">Pro</div>
       <div class="plan-price">$39 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes" data-i18n="feat_all_basic">הכל מ-Basic</li>
-        <li class="yes" data-i18n="feat_analytics">Analytics — גרפי מחיר</li>
-        <li class="yes" data-i18n="feat_ai_chat">AI Chat בעברית</li>
-        <li class="yes" data-i18n="feat_ai_alerts">סיכום AI בהתראות טלגרם</li>
-        <li class="no">REST API</li>
+        <li class="yes" data-i18n="feat_all_basic" data-tip="Includes everything in the Basic plan: real-time data, full history, watchlist, and filters">הכל מ-Basic</li>
+        <li class="yes" data-i18n="feat_analytics" data-tip="Go to the Analytics tab to see a price history graph for any market that triggered an alert — visualize exactly when it moved">Analytics — גרפי מחיר</li>
+        <li class="yes" data-i18n="feat_ai_chat" data-tip="Open AI Chat to ask 'What's happening with Trump markets?' or 'Which crypto market moved most today?' — powered by Gemini AI with live data">AI Chat בעברית</li>
+        <li class="yes" data-i18n="feat_ai_alerts" data-tip="Each Telegram alert automatically includes a short AI-written explanation: why this market is moving and what's behind the change">סיכום AI בהתראות טלגרם</li>
+        <li class="no" data-tip="Programmatic access to PolyBot alerts via HTTP — for developers and trading bots">REST API</li>
       </ul>
       {% if current_plan == 'pro' %}
         <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
@@ -2283,11 +2457,11 @@ _PRICING_HTML = """<!DOCTYPE html>
       <div class="plan-name">API</div>
       <div class="plan-price">$99 <span data-i18n="per_month">/חודש</span></div>
       <ul class="plan-features">
-        <li class="yes" data-i18n="feat_all_pro">הכל מ-Pro</li>
-        <li class="yes">REST API — /api/v1/feed</li>
-        <li class="yes" data-i18n="feat_api_key">API Key אישי</li>
-        <li class="yes" data-i18n="feat_realtime_json">JSON feed בזמן אמת</li>
-        <li class="yes" data-i18n="feat_integrations">אינטגרציה עם מערכות חיצוניות</li>
+        <li class="yes" data-i18n="feat_all_pro" data-tip="Includes everything in the Pro plan: Analytics, AI Chat, and AI-powered Telegram summaries">הכל מ-Pro</li>
+        <li class="yes" data-tip="Make HTTP GET requests to /api/v1/feed to receive the latest alerts as structured JSON data">REST API — /api/v1/feed</li>
+        <li class="yes" data-i18n="feat_api_key" data-tip="A unique secret key assigned to you — pass it as ?api_key=YOUR_KEY in every API request to authenticate">API Key אישי</li>
+        <li class="yes" data-i18n="feat_realtime_json" data-tip="The /api/v1/feed endpoint returns fresh alert data in JSON format — updated every 30 seconds, same speed as the dashboard">JSON feed בזמן אמת</li>
+        <li class="yes" data-i18n="feat_integrations" data-tip="Use the REST API to connect PolyBot to anything: Slack bots, Notion databases, Google Sheets, trading algorithms, or your own custom app">אינטגרציה עם מערכות חיצוניות</li>
       </ul>
       {% if current_plan == 'api' %}
         <div class="current-badge" data-i18n="current_plan">התוכנית הנוכחית שלך</div>
