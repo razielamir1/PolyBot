@@ -69,6 +69,12 @@ class DashboardStore:
         self._threshold: float = 10.0
         self._pending_threshold: float | None = None
 
+        # Volume spike settings
+        self._volume_spike_usd: float = 25000.0
+        self._volume_check_every: int = 10
+        self._volume_cooldown: float = 3600.0
+        self._pending_volume_settings: dict | None = None
+
     # ------------------------------------------------------------------
     # Writers (called from the main loop thread)
     # ------------------------------------------------------------------
@@ -182,6 +188,29 @@ class DashboardStore:
         with self._lock:
             val = self._pending_threshold
             self._pending_threshold = None
+            return val
+
+    def init_volume_settings(self, spike_usd: float, check_every: int, cooldown: float) -> None:
+        with self._lock:
+            self._volume_spike_usd = spike_usd
+            self._volume_check_every = check_every
+            self._volume_cooldown = cooldown
+
+    def get_volume_settings(self) -> dict:
+        with self._lock:
+            return {"spike_usd": self._volume_spike_usd, "check_every": self._volume_check_every, "cooldown": self._volume_cooldown}
+
+    def set_volume_settings(self, spike_usd: float, check_every: int, cooldown: float) -> None:
+        with self._lock:
+            self._volume_spike_usd = spike_usd
+            self._volume_check_every = check_every
+            self._volume_cooldown = cooldown
+            self._pending_volume_settings = {"spike_usd": spike_usd, "check_every": check_every, "cooldown": cooldown}
+
+    def consume_volume_settings_change(self) -> dict | None:
+        with self._lock:
+            val = self._pending_volume_settings
+            self._pending_volume_settings = None
             return val
 
     # ------------------------------------------------------------------

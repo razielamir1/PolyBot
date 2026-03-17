@@ -93,6 +93,7 @@ def main() -> None:
         from dashboard_store import store
         store.register_alerter(alerter)
         store.init_threshold(threshold_pct)
+        store.init_volume_settings(volume_spike_usd, volume_check_every, volume_alert_cooldown)
         start_dashboard(port=dashboard_port)
         logger.info(f"Dashboard running at http://localhost:{dashboard_port}")
 
@@ -159,6 +160,13 @@ def main() -> None:
                     logger.info(f"Refresh complete: {len(token_ids)} tokens tracked.")
                     store.set_tokens_tracked(len(token_ids))
                     store.set_action_msg(f"רענון הושלם ✅ — {len(token_ids)} טוקנים פעילים")
+
+                new_vol_cfg = store.consume_volume_settings_change()
+                if new_vol_cfg:
+                    volume_spike_usd      = new_vol_cfg["spike_usd"]
+                    volume_check_every    = new_vol_cfg["check_every"]
+                    volume_alert_cooldown = new_vol_cfg["cooldown"]
+                    logger.info(f"Volume settings updated: spike=${volume_spike_usd:,.0f}, every={volume_check_every} cycles, cooldown={volume_alert_cooldown}s")
 
             # ── Volume spike check (every N cycles) ─────────────────
             if cycle % volume_check_every == 0:

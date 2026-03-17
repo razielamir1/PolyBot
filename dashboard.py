@@ -413,6 +413,25 @@ _ADMIN_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Volume spike settings -->
+  <div class="card">
+    <h2>💰 Volume Spike Alerts</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:12px">Alert when a market receives large inflows. Checked every N cycles.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <label style="font-size:12px;color:var(--muted)">Min spike ($)
+        <input type="number" id="volSpikeUsd" min="1000" step="1000" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Check every (cycles)
+        <input type="number" id="volCheckEvery" min="1" max="100" step="1" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Cooldown (hours)
+        <input type="number" id="volCooldown" min="0.1" step="0.5" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+    </div>
+    <button class="btn-submit" onclick="saveVolumeSettings()">💾 Save</button>
+    <span id="volSettingsMsg" style="margin-left:10px;font-size:12px;color:var(--green)"></span>
+  </div>
+
   <!-- Muted events -->
   <div class="card">
     <h2>אירועים מושתקים</h2>
@@ -476,6 +495,30 @@ async function adminUnmute(btn, label) {
   loadMuted();
 }
 loadMuted();
+
+async function loadVolumeSettings() {
+  const r = await fetch('/api/volume-settings');
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('volSpikeUsd').value   = d.spike_usd;
+  document.getElementById('volCheckEvery').value = d.check_every;
+  document.getElementById('volCooldown').value   = +(d.cooldown / 3600).toFixed(2);
+}
+async function saveVolumeSettings() {
+  const spike_usd   = parseFloat(document.getElementById('volSpikeUsd').value);
+  const check_every = parseInt(document.getElementById('volCheckEvery').value);
+  const cooldown    = parseFloat(document.getElementById('volCooldown').value) * 3600;
+  if (!spike_usd || !check_every || !cooldown) return;
+  const r = await fetch('/api/volume-settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({spike_usd, check_every, cooldown})
+  });
+  const d = await r.json();
+  const msg = document.getElementById('volSettingsMsg');
+  msg.textContent = d.ok ? '\u2713 Saved' : d.message;
+  if (d.ok) setTimeout(() => msg.textContent = '', 3000);
+}
+loadVolumeSettings();
 
 async function runAiCommand() {
   const inp = document.getElementById('aiCmdInput');
@@ -1423,6 +1466,32 @@ def api_set_threshold():
         return jsonify({"ok": False, "message": "ערך לא תקין"}), 400
     store.set_threshold(val)
     msg = f"סף ההתראה עודכן ל-{val}%"
+    store.set_action_msg(msg)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/volume-settings", methods=["GET"])
+@login_required
+@admin_required
+def api_get_volume_settings():
+    return jsonify(store.get_volume_settings())
+
+
+@app.route("/api/volume-settings", methods=["POST"])
+@login_required
+@admin_required
+def api_set_volume_settings():
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        spike_usd    = float(data.get("spike_usd", 25000))
+        check_every  = int(data.get("check_every", 10))
+        cooldown     = float(data.get("cooldown", 3600))
+        if spike_usd <= 0 or check_every <= 0 or cooldown <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "message": "Invalid values"}), 400
+    store.set_volume_settings(spike_usd, check_every, cooldown)
+    msg = f"Volume settings updated: spike=${spike_usd:,.0f}, every {check_every} cycles"
     store.set_action_msg(msg)
     return jsonify({"ok": True, "message": msg})
 
