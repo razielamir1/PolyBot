@@ -634,7 +634,7 @@ _HTML = """<!DOCTYPE html>
                         font-weight:600;cursor:pointer;}
   .threshold-bar button:hover{background:rgba(88,166,255,.1);}
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 20px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 20px;align-items:start;}
   .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;}
   .card-full{grid-column:1/-1;}
   .card h2{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;
@@ -1017,13 +1017,16 @@ function renderMarketPage() {
   if (!slice.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">${t('empty_markets')}</td></tr>`; return; }
   tbody.innerHTML = slice.map(ev => {
     const link = ev.url ? ` <a href="${ev.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px" title="${t('open_poly')}">🔗</a>` : '';
-    return ev.outcomes.map((o, i) => {
+    const outcomes = ev.outcomes.slice(0, 5);
+    const extra = ev.outcomes.length - outcomes.length;
+    return outcomes.map((o, i) => {
       const inWl = o.token_id && watchlistTokens.has(o.token_id);
       const wlBtn = o.token_id ? `<button onclick="toggleWatchlist(this,'${o.token_id}','${(ev.event_label||'').replace(/'/g,"\\'")}','${(o.label||'').replace(/'/g,"\\'")}');event.stopPropagation();"
         style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:.8"
         title="${inWl ? t('rm_watchlist') : t('add_watchlist')}">${inWl ? '⭐' : '☆'}</button>` : '';
+      const rowspan = outcomes.length + (extra > 0 ? 1 : 0);
       return `<tr>
-        ${i === 0 ? `<td class="lbl" rowspan="${ev.outcomes.length}" title="${ev.event_label}">${ev.event_label}${link}</td>` : ''}
+        ${i === 0 ? `<td class="lbl" rowspan="${rowspan}" title="${ev.event_label}">${ev.event_label}${link}</td>` : ''}
         <td class="lbl">${o.label}</td>
         <td class="mono">${o.current_price != null ? fmtPct(o.current_price) : '—'}</td>
         <td>${fmtChg(o.pct_change)}</td>
@@ -1031,7 +1034,7 @@ function renderMarketPage() {
         <td>${o.alert_count > 0 ? `<span class="badge badge-orange">${o.alert_count}</span>` : '<span class="mu">0</span>'}</td>
         <td>${wlBtn}</td>
       </tr>`;
-    }).join('');
+    }).join('') + (extra > 0 ? `<tr><td colspan="6" class="mu" style="font-size:11px;padding:4px 10px">+ ${extra} more outcomes</td></tr>` : '');
   }).join('');
 }
 
