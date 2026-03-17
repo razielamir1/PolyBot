@@ -2413,27 +2413,29 @@ def api_nowpayments_create_subscription():
     plan = data.get("plan", "")
     if plan not in ("basic", "pro", "api"):
         return jsonify({"ok": False}), 400
-    plan_id = os.getenv(f"NOWPAYMENTS_PLAN_{plan.upper()}", "").strip()
-    if not plan_id:
-        return jsonify({"ok": False, "message": "plan_id not set"}), 503
+    plan_prices = {"basic": 15, "pro": 39, "api": 99}
+    plan_names  = {"basic": "PolyBot Basic", "pro": "PolyBot Pro", "api": "PolyBot API"}
     payload = {
-        "subscription_plan_id": plan_id,
-        "email": current_user.email,
+        "price_amount": plan_prices[plan],
+        "price_currency": "usd",
         "order_id": f"{current_user.id}:{plan}",
+        "order_description": plan_names[plan],
+        "success_url": "https://polybotalerts.duckdns.org/pricing?ok=1&msg=Payment+successful",
+        "cancel_url": "https://polybotalerts.duckdns.org/pricing",
     }
     try:
         r = requests.post(
-            "https://api.nowpayments.io/v1/subscriptions",
+            "https://api.nowpayments.io/v1/invoice",
             json=payload,
             headers={"x-api-key": key, "Content-Type": "application/json"},
             timeout=15,
         )
         d = r.json()
-        logger.info("NOWPayments response (status=%s): %s", r.status_code, d)
+        logger.info("NOWPayments invoice response (status=%s): %s", r.status_code, d)
     except Exception as exc:
         logger.warning("NOWPayments API error: %s", exc)
         return jsonify({"ok": False, "message": str(exc)}), 500
-    url = d.get("pay_url") or d.get("invoice_url") or d.get("url")
+    url = d.get("invoice_url") or d.get("pay_url") or d.get("url")
     if url:
         return jsonify({"ok": True, "url": url})
     return jsonify({"ok": False, "message": str(d)}), 500
