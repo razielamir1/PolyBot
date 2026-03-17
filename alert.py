@@ -69,8 +69,9 @@ class TelegramAlerter:
         cooldown_key = token_id
         now = time.time()
 
-        # Mute check
-        if _store.is_muted(cooldown_key):
+        # Mute check — match against event_label (what the UI stores)
+        mute_key = alert.get("event_label") or token_id
+        if _store.is_muted(mute_key):
             logger.debug("Muted: %s — skipping alert", cooldown_key)
             return False
 

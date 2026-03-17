@@ -1311,11 +1311,12 @@ function renderOnboard() {
       <div class="ob-footer">
         <div class="ob-dots">${dots}</div>
         <div class="ob-btns">
-          ${obStep > 0 ? '<button class="ob-btn" onclick="obNav(-1)">← Back</button>' : ''}
+          ${obStep > 0 ? '<button class="ob-btn" onclick="obNav(-1)">← Back</button>' : '<label style="font-size:11px;color:#888;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="obDontShow" style="cursor:pointer"> Don\'t show again</label>'}
           <button class="ob-btn ob-btn-primary" onclick="${isLast ? 'closeOnboard()' : 'obNav(1)'}">
             ${isLast ? '✓ Got it!' : 'Next →'}
           </button>
         </div>
+        ${obStep === 0 ? '<div style="text-align:center;margin-top:8px"><button class="ob-btn" style="font-size:11px;opacity:0.6" onclick="closeOnboard()">Skip tour</button></div>' : ''}
       </div>
     </div>`;
 }
@@ -1326,7 +1327,8 @@ function obNav(dir) {
 }
 
 function closeOnboard() {
-  localStorage.setItem(OB_KEY, '1');
+  const cb = document.getElementById('obDontShow');
+  if (cb && cb.checked) localStorage.setItem(OB_KEY, '1');
   const ov = document.getElementById('onboardOverlay');
   if (ov) ov.remove();
 }
