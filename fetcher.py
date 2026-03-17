@@ -55,8 +55,8 @@ class Fetcher:
         min_volume: float = DEFAULT_MIN_VOLUME,
         top_n: int = DEFAULT_TOP_N,
     ) -> list[dict[str, Any]]:
-        """Return the *top_n* active Politics events whose **aggregated**
-        volume exceeds *min_volume* (USD), sorted by volume descending.
+        """Return the *top_n* active high-volume events sorted by volume descending.
+        Fetches all categories (Politics, Sports, Crypto, etc.).
         """
         url = f"{GAMMA_API_BASE}/events"
         params = {
@@ -65,43 +65,18 @@ class Fetcher:
             "order": "volume",
             "ascending": "false",
             "limit": limit,
-            "tag": "Politics",
         }
-        tag_events = self._get_json(url, params=params)
-        if not isinstance(tag_events, list):
-            tag_events = []
-
-        params_global = {
-            "active": "true",
-            "closed": "false",
-            "order": "volume",
-            "ascending": "false",
-            "limit": limit,
-        }
-        global_events = self._get_json(url, params=params_global)
-        if not isinstance(global_events, list):
-            global_events = []
+        all_events = self._get_json(url, params=params)
+        if not isinstance(all_events, list):
+            all_events = []
 
         seen_ids: set[str] = set()
         merged: list[dict[str, Any]] = []
-
-        for event in tag_events + global_events:
+        for event in all_events:
             eid = str(event.get("id", ""))
             if not eid or eid in seen_ids:
                 continue
             seen_ids.add(eid)
-
-            tags = str(event.get("tags", "") or "").lower()
-            title = str(event.get("title", "") or "").lower()
-            slug = str(event.get("slug", "") or "").lower()
-            combined = f"{tags} {title} {slug}"
-
-            is_politics = "politics" in combined or any(
-                kw in combined for kw in _POLITICS_KEYWORDS
-            )
-            if not is_politics:
-                continue
-
             merged.append(event)
 
         filtered: list[dict[str, Any]] = []
@@ -120,7 +95,7 @@ class Fetcher:
         filtered = filtered[:top_n]
 
         logger.info(
-            "Events: %d politics filtered → %d pass $%s volume → keeping top %d.",
+            "Events: %d total → %d pass $%s volume → keeping top %d.",
             len(merged),
             len(filtered),
             f"{min_volume:,.0f}",
