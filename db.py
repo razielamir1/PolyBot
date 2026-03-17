@@ -54,6 +54,10 @@ def init_db() -> None:
             con.execute("ALTER TABLE users ADD COLUMN api_key TEXT UNIQUE")
         except Exception:
             pass
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN nowpayments_subscription_id TEXT")
+        except Exception:
+            pass
         con.execute("""
             CREATE TABLE IF NOT EXISTS muted_events (
                 event_label  TEXT PRIMARY KEY,
@@ -265,6 +269,15 @@ def get_user_by_api_key(api_key: str) -> dict | None:
             (api_key,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def update_nowpayments_subscription(user_id: int, subscription_id: str) -> None:
+    with _conn() as con:
+        con.execute(
+            "UPDATE users SET nowpayments_subscription_id=? WHERE id=?",
+            (subscription_id, user_id),
+        )
+        con.commit()
 
 
 def toggle_watchlist(user_id: int, token_id: str, event_label: str = "", label: str = "") -> dict:

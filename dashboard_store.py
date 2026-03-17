@@ -89,6 +89,7 @@ class DashboardStore:
         token_to_label: dict[str, str],
         token_to_event_label: dict[str, str] | None = None,
         token_to_category: dict[str, str] | None = None,
+        token_to_pct_10m: dict[str, float] | None = None,
     ) -> None:
         with self._lock:
             self._bot_status["cycle_count"] = cycle
@@ -114,6 +115,8 @@ class DashboardStore:
                 entry["label"] = lbl
                 entry["event_label"] = ev_lbl
                 entry["category"] = cat
+                if token_to_pct_10m and token_id in token_to_pct_10m:
+                    entry["pct_10m"] = token_to_pct_10m[token_id]
 
                 # Record price history for hot markets only
                 if token_id in self._watched_tokens:
@@ -322,7 +325,7 @@ class DashboardStore:
         with self._lock:
             return {
                 "bot_status": dict(self._bot_status),
-                "market_stats": [{"token_id": k, **dict(v)} for k, v in self._market_stats.items()],
+                "market_stats": [{"token_id": k, **dict(v), "url": self._token_url.get(k, "")} for k, v in self._market_stats.items()],
                 "alert_feed": list(self._alert_feed),
                 "last_action_msg": self._last_action_msg,
                 "threshold": self._threshold,

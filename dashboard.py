@@ -662,6 +662,10 @@ _HTML = """<!DOCTYPE html>
   .dn{color:var(--red);font-weight:600;}
   .mu{color:var(--muted);font-size:12px;}
   .wm{color:var(--yellow);font-size:11px;}
+  .cat-pill{padding:4px 12px;border-radius:999px;border:1px solid var(--border);
+            background:var(--card);color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s;}
+  .cat-pill:hover{border-color:var(--accent);color:var(--accent);}
+  .cat-pill.active{border-color:var(--accent);background:rgba(88,166,255,.1);color:var(--accent);font-weight:600;}
 
   .pager{display:flex;justify-content:center;align-items:center;gap:8px;
          margin-top:10px;font-size:12px;color:var(--muted);}
@@ -723,13 +727,25 @@ _HTML = """<!DOCTYPE html>
 <div class="grid">
 
   <div class="card">
-    <h2 data-i18n="status_title">סטטוס הבוט</h2>
-    <div class="stat-grid">
-      <div class="stat"><div class="stat-label" data-i18n="stat_cycles">מחזורים</div><div class="stat-value" id="cycleCount">—</div></div>
-      <div class="stat"><div class="stat-label" data-i18n="stat_markets">שווקים במעקב</div><div class="stat-value" id="mktCount">—</div></div>
-      <div class="stat"><div class="stat-label" data-i18n="stat_last_update">עדכון אחרון</div><div class="stat-value" style="font-size:15px" id="lastUpdate">—</div></div>
-      <div class="stat"><div class="stat-label" data-i18n="stat_since">פעיל מאז</div><div class="stat-value" style="font-size:15px" id="startTime">—</div></div>
+    <details id="botStatusDetails" style="display:none">
+      <summary style="cursor:pointer;font-size:13px;color:var(--fg-muted);margin-bottom:10px" data-i18n="status_title">Bot Status</summary>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label" data-i18n="stat_cycles">Cycles</div><div class="stat-value" id="cycleCount">—</div></div>
+        <div class="stat"><div class="stat-label" data-i18n="stat_markets">Markets Tracked</div><div class="stat-value" id="mktCount">—</div></div>
+        <div class="stat"><div class="stat-label" data-i18n="stat_last_update">Last Update</div><div class="stat-value" style="font-size:15px" id="lastUpdate">—</div></div>
+        <div class="stat"><div class="stat-label" data-i18n="stat_since">Active Since</div><div class="stat-value" style="font-size:15px" id="startTime">—</div></div>
+      </div>
+    </details>
+    <h2 id="filterTitle" data-i18n="filter_title">Filter by Category</h2>
+    <div id="catGrid" style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">
+      <button class="cat-pill active" onclick="setFilter('')">🌐 All</button>
+      <button class="cat-pill" onclick="setFilter('Politics')">🏛️ Politics</button>
+      <button class="cat-pill" onclick="setFilter('Sports')">⚽ Sports</button>
+      <button class="cat-pill" onclick="setFilter('Crypto')">₿ Crypto</button>
+      <button class="cat-pill" onclick="setFilter('Entertainment')">🎬 Entertainment</button>
+      <button class="cat-pill" onclick="setFilter('Other')">📌 Other</button>
     </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--fg-muted)"><span id="filterStats"></span></div>
   </div>
 
   <div class="card">
@@ -751,10 +767,11 @@ _HTML = """<!DOCTYPE html>
           <th data-i18n="col_topic">נושא</th><th data-i18n="col_outcome">תשובה</th>
           <th data-i18n="col_max_price">מחיר גבוה ביותר באירוע (%)</th>
           <th data-i18n="col_max_change">שינוי מקסימלי בחלון 5 דק׳</th>
+          <th data-i18n="col_10m_change">10m Δ</th>
           <th data-i18n="col_alerts_sent">התראות שנשלחו לטלגרם</th>
           <th>⭐</th>
         </tr></thead>
-        <tbody id="marketBody"><tr><td colspan="6" class="empty" data-i18n="empty_markets">ממתין...</td></tr></tbody>
+        <tbody id="marketBody"><tr><td colspan="7" class="empty" data-i18n="empty_markets">ממתין...</td></tr></tbody>
       </table>
     </div>
     <div class="pager">
@@ -788,9 +805,11 @@ const LANG = {
     market_stats_sub:'— מחירים = הסתברות (0%–100%) · מקובצים לפי אירוע',
     stat_cycles:'מחזורים', stat_markets:'שווקים במעקב',
     stat_last_update:'עדכון אחרון', stat_since:'פעיל מאז',
+    filter_title:'סינון לפי קטגוריה',
     col_topic:'נושא', col_outcome:'תשובה',
     col_max_price:'מחיר גבוה ביותר באירוע (%)',
     col_max_change:'שינוי מקסימלי בחלון 5 דק׳',
+    col_10m_change:'10m Δ',
     col_alerts_sent:'התראות שנשלחו לטלגרם',
     col_time:'שעה', col_jump:'קפיצה',
     col_price_before:'מחיר לפני', col_price_after:'מחיר אחרי',
@@ -816,14 +835,16 @@ const LANG = {
     market_stats_sub:'— Prices = probability (0%–100%) · grouped by event',
     stat_cycles:'Cycles', stat_markets:'Markets Tracked',
     stat_last_update:'Last Update', stat_since:'Active Since',
+    filter_title:'Filter by Category',
     col_topic:'Topic', col_outcome:'Outcome',
     col_max_price:'Highest Price in Event (%)',
     col_max_change:'Max Change (5 min window)',
+    col_10m_change:'10m Δ',
     col_alerts_sent:'Telegram Alerts Sent',
     col_time:'Time', col_jump:'Change',
     col_price_before:'Price Before', col_price_after:'Price After',
     btn_prev:'◀ Prev', btn_next:'Next ▶',
-    btn_cycle:'⚡ Force Cycle Now', btn_cycle_load:'⚡ Running...',
+    btn_cycle:'⚡ Manual Sync', btn_cycle_load:'⚡ Running...',
     btn_telegram:'📨 Test Telegram', btn_telegram_load:'📨 Sending...',
     btn_refresh:'🔄 Refresh Markets', btn_refresh_load:'🔄 Refreshing...',
     threshold_label:'Threshold:', btn_update:'Update',
@@ -855,12 +876,23 @@ function applyLangUI() {
 
 const fmtPct = v => v == null ? null : (v * 100).toFixed(1) + '%';
 const fmtChg = v => v == null
-  ? `<span class="wm">${t('warming_up')}</span>`
+  ? '<span class="mu">—</span>'
   : `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;
 
 let isAdmin = false;
+let activeFilter = '';
 let watchlistTokens = new Set();
 let userKeywords = [], userMinPct = 0;
+
+function setFilter(cat) {
+  activeFilter = cat;
+  document.querySelectorAll('#catGrid .cat-pill').forEach(b => {
+    const m = (b.getAttribute('onclick') || '').match(/setFilter\('([^']*)'\)/);
+    b.classList.toggle('active', m ? m[1] === cat : false);
+  });
+  currentPage = 1;
+  renderMarketPage();
+}
 
 async function loadMyWatchlist() {
   try {
@@ -915,6 +947,8 @@ function applyAuthUI(admin, email, role, threshold, canAnalytics, canAi, plan, c
     document.getElementById('adminBar').style.display = 'flex';
     document.getElementById('adminLink').style.display = 'inline';
     if (threshold != null) document.getElementById('thresholdInput').value = threshold;
+    const bsd = document.getElementById('botStatusDetails');
+    if (bsd) bsd.style.display = '';
   }
   if (canAnalytics) document.getElementById('analyticsLink').style.display = 'inline';
   if (canAi) document.getElementById('aiChatLink').style.display = 'inline';
@@ -939,30 +973,32 @@ const PAGE_SIZE = 10;
 let allGrouped = [], currentPage = 1;
 
 function groupByLabel(stats) {
-  const map = {};
+  const evMap = {};
   stats.forEach(m => {
     const ev = m.event_label || m.label;
-    const out = (m.label && m.label !== ev) ? m.label : '—';
-    const key = ev + '||' + out;
-    if (!map[key]) map[key] = { event_label: ev, label: out, prices: [], pct_changes: [], alert_count: 0, token_id: m.token_id || '' };
-    map[key].prices.push(m.current_price);
-    if (m.pct_change != null) map[key].pct_changes.push(m.pct_change);
-    map[key].alert_count += m.alert_count;
+    if (!evMap[ev]) evMap[ev] = { event_label: ev, url: '', outcomes: [], alert_count: 0, category: m.category || 'Other' };
+    const outcome = {
+      label: (m.label && m.label !== ev) ? m.label : '—',
+      token_id: m.token_id || '',
+      current_price: m.current_price,
+      pct_change: m.pct_change,
+      pct_10m: m.pct_10m != null ? m.pct_10m : null,
+      alert_count: m.alert_count || 0,
+      url: m.url || '',
+      category: m.category || 'Other',
+    };
+    evMap[ev].outcomes.push(outcome);
+    evMap[ev].alert_count += outcome.alert_count;
+    if (!evMap[ev].url && m.url) evMap[ev].url = m.url;
   });
-  return Object.values(map).map(g => ({
-    event_label: g.event_label,
-    label: g.label,
-    max_price: g.prices.length ? Math.max(...g.prices) : null,
-    max_pct: g.pct_changes.length ? Math.max(...g.pct_changes) : null,
-    alert_count: g.alert_count,
-    token_id: g.token_id,
-  })).sort((a,b) => (b.alert_count - a.alert_count) || a.event_label.localeCompare(b.event_label));
+  return Object.values(evMap).sort((a,b) => (b.alert_count - a.alert_count) || a.event_label.localeCompare(b.event_label));
 }
 
 function renderMarketPage() {
-  const filtered = userKeywords.length > 0
-    ? allGrouped.filter(m => matchesFilter(m.event_label, m.label, m.max_pct))
-    : allGrouped;
+  let filtered = allGrouped;
+  if (activeFilter) filtered = filtered.filter(ev => ev.outcomes.some(o => o.category === activeFilter));
+  if (userKeywords.length > 0) filtered = filtered.filter(ev =>
+    ev.outcomes.some(o => matchesFilter(ev.event_label, o.label, o.pct_change)));
   const total = filtered.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   currentPage = Math.min(currentPage, pages);
@@ -970,22 +1006,32 @@ function renderMarketPage() {
   document.getElementById('pageInfo').textContent = total ? `${t('page_x')} ${currentPage} ${t('of_x')} ${pages}` : '—';
   document.getElementById('prevBtn').disabled = currentPage <= 1;
   document.getElementById('nextBtn').disabled = currentPage >= pages;
-  document.getElementById('mktBadge').textContent = total + ' ' + t('markets_x') + (userKeywords.length ? ' (' + t('filtered_x') + ')' : '');
+  document.getElementById('mktBadge').textContent = total + ' ' + t('markets_x') + (userKeywords.length || activeFilter ? ' (' + t('filtered_x') + ')' : '');
+
+  const totalOutcomes = allGrouped.reduce((s, ev) => s + ev.outcomes.length, 0);
+  const totalAlertSum = allGrouped.reduce((s, ev) => s + ev.alert_count, 0);
+  const fs = document.getElementById('filterStats');
+  if (fs) fs.textContent = `${totalOutcomes} markets · ${totalAlertSum} alerts`;
+
   const tbody = document.getElementById('marketBody');
-  if (!slice.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">${t('empty_markets')}</td></tr>`; return; }
-  tbody.innerHTML = slice.map(m => {
-    const inWl = m.token_id && watchlistTokens.has(m.token_id);
-    const wlBtn = m.token_id ? `<button onclick="toggleWatchlist(this,'${m.token_id}','${(m.event_label||'').replace(/'/g,"\\'")}','${(m.label||'').replace(/'/g,"\\'")}'); event.stopPropagation();"
-      style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:.8"
-      title="${inWl ? t('rm_watchlist') : t('add_watchlist')}">${inWl ? '⭐' : '☆'}</button>` : '';
-    return `<tr>
-      <td class="lbl" title="${m.event_label}">${m.event_label}</td>
-      <td class="lbl">${m.label}</td>
-      <td class="mono">${m.max_price != null ? fmtPct(m.max_price) : '—'}</td>
-      <td>${fmtChg(m.max_pct)}</td>
-      <td>${m.alert_count > 0 ? `<span class="badge badge-orange">${m.alert_count}</span>` : '<span class="mu">0</span>'}</td>
-      <td>${wlBtn}</td>
-    </tr>`;
+  if (!slice.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">${t('empty_markets')}</td></tr>`; return; }
+  tbody.innerHTML = slice.map(ev => {
+    const link = ev.url ? ` <a href="${ev.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px" title="${t('open_poly')}">🔗</a>` : '';
+    return ev.outcomes.map((o, i) => {
+      const inWl = o.token_id && watchlistTokens.has(o.token_id);
+      const wlBtn = o.token_id ? `<button onclick="toggleWatchlist(this,'${o.token_id}','${(ev.event_label||'').replace(/'/g,"\\'")}','${(o.label||'').replace(/'/g,"\\'")}');event.stopPropagation();"
+        style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:.8"
+        title="${inWl ? t('rm_watchlist') : t('add_watchlist')}">${inWl ? '⭐' : '☆'}</button>` : '';
+      return `<tr>
+        ${i === 0 ? `<td class="lbl" rowspan="${ev.outcomes.length}" title="${ev.event_label}">${ev.event_label}${link}</td>` : ''}
+        <td class="lbl">${o.label}</td>
+        <td class="mono">${o.current_price != null ? fmtPct(o.current_price) : '—'}</td>
+        <td>${fmtChg(o.pct_change)}</td>
+        <td>${fmtChg(o.pct_10m)}</td>
+        <td>${o.alert_count > 0 ? `<span class="badge badge-orange">${o.alert_count}</span>` : '<span class="mu">0</span>'}</td>
+        <td>${wlBtn}</td>
+      </tr>`;
+    }).join('');
   }).join('');
 }
 
@@ -1056,8 +1102,9 @@ async function fetchFeed() {
       totalAlerts++;
       const el = document.createElement('div');
       el.className = 'fi';
+      const feedLink = a.url ? ` <a href="${a.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none" title="${t('open_poly')}">🔗</a>` : '';
       el.innerHTML = `
-        <span class="fi-lbl" title="${a.event_label || a.label}">${a.event_label || a.label}${(a.label && a.label !== (a.event_label || a.label)) ? ' — ' + a.label : ''}</span>
+        <span class="fi-lbl" title="${a.event_label || a.label}">${a.event_label || a.label}${(a.label && a.label !== (a.event_label || a.label)) ? ' — ' + a.label : ''}${feedLink}</span>
         <span class="fi-pct">+${a.pct_change.toFixed(2)}%</span>
         <span class="fi-meta">${fmtPct(a.old_price)} → ${fmtPct(a.new_price)}<br>${a.time}</span>`;
       feedDiv.insertBefore(el, feedDiv.firstChild);
@@ -1725,10 +1772,10 @@ _SETTINGS_HTML = """<!DOCTYPE html>
   <div class="card">
     <h2>פילטר התראות</h2>
     <label>מילות מפתח (מופרדות בפסיק)</label>
-    <input type="text" id="kwInput" placeholder="לדוגמא: טראמפ, ביטקויין, איראן">
+    <input type="text" id="kwInput" placeholder="e.g. Trump, Bitcoin, Iran">
     <p class="hint">רק התראות שמכילות לפחות מילה אחת מהרשימה יוצגו בדאשבורד. ריק = הצג הכל.</p>
     <label>סף מינימלי להצגה (%)</label>
-    <input type="number" id="minPctInput" placeholder="0 = ברירת מחדל" min="0" max="100" step="0.5">
+    <input type="number" id="minPctInput" placeholder="0 = use global default" min="0" max="100" step="0.5">
     <p class="hint">הצג רק התראות עם קפיצה של לפחות X%. 0 = השתמש בהגדרת הבוט הגלובלית.</p>
     <button class="btn-save" onclick="saveSettings()">שמור הגדרות</button>
   </div>

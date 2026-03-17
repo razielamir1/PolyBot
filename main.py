@@ -77,6 +77,7 @@ def main() -> None:
         return [
             StateManager(window_seconds=60,  threshold_pct=thr),
             StateManager(window_seconds=300, threshold_pct=thr),
+            StateManager(window_seconds=600, threshold_pct=thr),
             StateManager(window_seconds=900, threshold_pct=thr),
         ]
     states  = _make_states(threshold_pct)
@@ -148,13 +149,17 @@ def main() -> None:
             if prices:
                 # Merge alerts from all windows — keep best score per token
                 best: dict[str, dict] = {}
+                pct_10m: dict[str, float] = {}
                 for sm in states:
-                    for a in sm.update(prices):
+                    window_alerts = sm.update(prices)
+                    for a in window_alerts:
                         tid = a["token_id"]
                         score = abs(a["pct_change"]) * (300.0 / a["window_seconds"])
                         a["score"] = round(score, 2)
                         if tid not in best or a["score"] > best[tid]["score"]:
                             best[tid] = a
+                        if a["window_seconds"] == 600:
+                            pct_10m[tid] = a["pct_change"]
                 alerts = list(best.values())
 
                 if alerts:
@@ -183,7 +188,7 @@ def main() -> None:
 
                 if dashboard_enabled:
                     from dashboard_store import store
-                    store.record_cycle(cycle, prices, token_to_label, token_to_event_label, token_to_category)
+                    store.record_cycle(cycle, prices, token_to_label, token_to_event_label, token_to_category, pct_10m)
                     if alerts:
                         store.record_alerts(alerts)
             else:

@@ -106,9 +106,18 @@ class TelegramAlerter:
         return ok
 
     def send_alerts(self, alerts: list[dict]) -> int:
-        """Send multiple alerts. Returns the count of messages sent."""
+        """Send multiple alerts. Returns the count of messages sent.
+
+        Deduplicates binary Yes/No pairs: keeps only the alert with the
+        highest abs(pct_change) per event_label.
+        """
+        best_by_event: dict[str, dict] = {}
+        for a in alerts:
+            ev = a.get("event_label") or a["token_id"]
+            if ev not in best_by_event or abs(a["pct_change"]) > abs(best_by_event[ev]["pct_change"]):
+                best_by_event[ev] = a
         sent = 0
-        for alert in alerts:
+        for alert in best_by_event.values():
             if self.send_alert(alert):
                 sent += 1
         return sent
@@ -189,20 +198,24 @@ class TelegramAlerter:
             "text": text,
             "parse_mode": "HTML",
         }
-        for attempt in range(3):
+        rate_limited = False
+        for attempt in range(5):
             try:
                 resp = self.session.post(url, json=payload, timeout=10)
                 if resp.status_code == 200:
                     return True
                 if resp.status_code == 429:
+                    rate_limited = True
                     retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
-                    logger.warning("Telegram rate limit — waiting %ds (attempt %d/3)", retry_after, attempt + 1)
+                    logger.warning("Telegram rate limit — waiting %ds (attempt %d/5)", retry_after, attempt + 1)
                     time.sleep(retry_after)
                     continue
                 logger.error("Telegram API error %s: %s", resp.status_code, resp.text[:200])
                 return False
             except requests.exceptions.RequestException as exc:
-                logger.error("Failed to send Telegram message (attempt %d/3): %s", attempt + 1, exc)
-                if attempt < 2:
+                logger.error("Failed to send Telegram message (attempt %d/5): %s", attempt + 1, exc)
+                if attempt < 4:
                     time.sleep(2)
+        if rate_limited:
+            logger.warning("Telegram rate limit exceeded after 5 attempts — message dropped")
         return False
