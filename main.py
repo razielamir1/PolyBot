@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import time
+from collections import deque
 
 from dotenv import load_dotenv
 
@@ -67,9 +68,13 @@ def main() -> None:
     # Railway assigns PORT; fall back to DASHBOARD_PORT for local use
     dashboard_port   = int(os.getenv("PORT", os.getenv("DASHBOARD_PORT", "5588")))
 
-    volume_spike_usd    = float(os.getenv("VOLUME_SPIKE_USD", "25000"))
-    volume_check_every  = int(os.getenv("VOLUME_CHECK_EVERY", "10"))   # cycles
+    volume_spike_usd      = float(os.getenv("VOLUME_SPIKE_USD", "25000"))
+    volume_check_every    = int(os.getenv("VOLUME_CHECK_EVERY", "10"))
     volume_alert_cooldown = float(os.getenv("VOLUME_ALERT_COOLDOWN_SECONDS", "3600"))
+    whale_enabled         = os.getenv("WHALE_ENABLED", "true").lower() == "true"
+    whale_min_usd         = float(os.getenv("WHALE_MIN_USD", "10000"))
+    whale_check_every     = int(os.getenv("WHALE_CHECK_EVERY", "5"))
+    whale_cooldown        = float(os.getenv("WHALE_ALERT_COOLDOWN_SECONDS", "1800"))
 
     if not bot_token or not chat_id:
         logger.error("Error: Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env")
@@ -94,6 +99,7 @@ def main() -> None:
         store.register_alerter(alerter)
         store.init_threshold(threshold_pct)
         store.init_volume_settings(volume_spike_usd, volume_check_every, volume_alert_cooldown)
+        store.init_whale_settings(whale_enabled, whale_min_usd, whale_check_every, whale_cooldown)
         start_dashboard(port=dashboard_port)
         logger.info(f"Dashboard running at http://localhost:{dashboard_port}")
 
@@ -134,7 +140,9 @@ def main() -> None:
     event_id_to_slug: dict[str, str] = {
         str(e["id"]): e.get("slug", "") for e in events
     }
-    last_volume_alert: dict[str, float] = {}  # event_id → timestamp
+    last_volume_alert: dict[str, float] = {}   # event_id → timestamp
+    vol_delta_history: dict[str, deque] = {}   # event_id → deque(maxlen=12) of deltas
+    last_whale_alert: dict[str, float] = {}    # token_id → timestamp
 
     # ── Main loop ───────────────────────────────────────────────────
     logger.info(f"Monitoring Begin: {len(token_ids)} tokens. Threshold: {threshold_pct}%")
@@ -168,6 +176,14 @@ def main() -> None:
                     volume_alert_cooldown = new_vol_cfg["cooldown"]
                     logger.info(f"Volume settings updated: spike=${volume_spike_usd:,.0f}, every={volume_check_every} cycles, cooldown={volume_alert_cooldown}s")
 
+                new_whale_cfg = store.consume_whale_settings_change()
+                if new_whale_cfg:
+                    whale_enabled     = new_whale_cfg["enabled"]
+                    whale_min_usd     = new_whale_cfg["min_usd"]
+                    whale_check_every = new_whale_cfg["check_every"]
+                    whale_cooldown    = new_whale_cfg["cooldown"]
+                    logger.info(f"Whale settings updated: enabled={whale_enabled}, min=${whale_min_usd:,.0f}, every={whale_check_every} cycles")
+
             # ── Volume spike check (every N cycles) ─────────────────
             if cycle % volume_check_every == 0:
                 fresh_events = fetcher.fetch_politics_events(
@@ -179,6 +195,8 @@ def main() -> None:
                     new_vol = float(ev.get("volume", 0) or 0)
                     old_vol = prev_event_volumes.get(eid, new_vol)
                     delta = new_vol - old_vol
+                    # Always record delta to build baseline
+                    vol_delta_history.setdefault(eid, deque(maxlen=12)).append(delta)
                     if delta >= volume_spike_usd:
                         last_sent = last_volume_alert.get(eid, 0)
                         if now - last_sent >= volume_alert_cooldown:
@@ -186,17 +204,57 @@ def main() -> None:
                             slug  = ev.get("slug",  event_id_to_slug.get(eid, ""))
                             url   = f"https://polymarket.com/event/{slug}" if slug else ""
                             window_min = int(volume_check_every * poll_interval / 60) or 1
+                            prior = list(vol_delta_history[eid])[:-1]
+                            if len(prior) >= 3:
+                                avg = sum(prior) / len(prior)
+                                context_line = (f"\n📊 {delta/avg:.1f}x above normal avg ({_fmt_volume(avg)}/{window_min}min)" if avg > 0 else "\n📊 Avg baseline is zero")
+                            else:
+                                context_line = "\n📊 New — no baseline yet"
                             msg = (
                                 f"💰 <b>Volume Spike!</b>\n"
                                 f"<b>{label}</b>\n"
                                 f"+{_fmt_volume(delta)} in the last ~{window_min} min\n"
                                 f"📊 Total: {_fmt_volume(new_vol)}"
+                                f"{context_line}"
                                 + (f"\n<a href='{url}'>View on Polymarket</a>" if url else "")
                             )
                             alerter._send_message(msg)
                             last_volume_alert[eid] = now
                             logger.info(f"💰 VOLUME SPIKE: {label} +{_fmt_volume(delta)}")
                     prev_event_volumes[eid] = new_vol
+
+            # ── Whale detection (every N cycles) ────────────────────
+            if whale_enabled and cycle % whale_check_every == 0:
+                if dashboard_enabled:
+                    from dashboard_store import store
+                    hot_tokens = store.get_hot_token_ids(min_alert_count=1)
+                else:
+                    hot_tokens = token_ids[:50]
+                now_w = time.time()
+                for token_id in hot_tokens:
+                    if now_w - last_whale_alert.get(token_id, 0) < whale_cooldown:
+                        continue
+                    for trade in fetcher.fetch_recent_trades(token_id, limit=20):
+                        try:
+                            usd = float(trade.get("size", 0) or 0) * float(trade.get("price", 0) or 0)
+                        except (ValueError, TypeError):
+                            continue
+                        if usd >= whale_min_usd:
+                            side  = str(trade.get("side", "")).upper() or "TRADE"
+                            label = token_to_label.get(token_id, token_id[:16] + "…")
+                            url   = token_to_url.get(token_id, "")
+                            size  = float(trade.get("size", 0) or 0)
+                            price = float(trade.get("price", 0) or 0)
+                            msg = (
+                                f"🐋 <b>Whale Alert!</b>\n"
+                                f"<b>{label}</b>\n"
+                                f"{side} ${usd:,.0f} ({size:,.0f} shares @ {int(price*100)}¢)"
+                                + (f"\n<a href='{url}'>🔗 View on Polymarket</a>" if url else "")
+                            )
+                            alerter._send_message(msg)
+                            last_whale_alert[token_id] = now_w
+                            logger.info(f"🐋 WHALE: {label} {side} ${usd:,.0f}")
+                            break
 
             prices = fetcher.fetch_midpoints(token_ids)
 

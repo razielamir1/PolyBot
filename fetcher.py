@@ -39,6 +39,8 @@ _POLITICS_KEYWORDS = [
 class Fetcher:
     """Handles all HTTP interaction with Polymarket APIs."""
 
+    _trades_param: str | None = None  # discovered once, shared across instances
+
     def __init__(self, session: requests.Session | None = None, workers: int = 50):
         self.session = session or requests.Session()
         self._backoff = _INITIAL_BACKOFF
@@ -230,6 +232,40 @@ class Fetcher:
                 if result is not None:
                     prices[result[0]] = result[1]
         return prices
+
+    # ------------------------------------------------------------------
+    # Trade data (CLOB API /trades)
+    # ------------------------------------------------------------------
+    def fetch_recent_trades(self, token_id: str, limit: int = 20) -> list[dict]:
+        """Fetch recent trades for a token. Returns list of trade dicts.
+
+        Each dict has: size (float), price (float 0-1), side (BUY/SELL).
+        Returns [] on any error. Probes param name on first call and caches it.
+        """
+        url = f"{CLOB_API_BASE}/trades"
+
+        def _parse(resp: Any) -> list[dict]:
+            if isinstance(resp, list):
+                return resp
+            if isinstance(resp, dict):
+                data = resp.get("data") or resp.get("trades")
+                if isinstance(data, list):
+                    return data
+            return []
+
+        if Fetcher._trades_param is not None:
+            resp = self._get_json(url, params={Fetcher._trades_param: token_id, "limit": limit}, skip_404=True)
+            return _parse(resp) if resp is not None else []
+
+        for param in ("token_id", "market", "id"):
+            resp = self._get_json(url, params={param: token_id, "limit": limit}, skip_404=True)
+            if resp is not None:
+                Fetcher._trades_param = param
+                logger.info("CLOB /trades param resolved: %r", param)
+                return _parse(resp)
+
+        logger.warning("Could not resolve CLOB /trades param — whale detection disabled until restart")
+        return []
 
     # ------------------------------------------------------------------
     # Internal helpers

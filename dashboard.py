@@ -432,6 +432,31 @@ _ADMIN_HTML = """<!DOCTYPE html>
     <span id="volSettingsMsg" style="margin-left:10px;font-size:12px;color:var(--green)"></span>
   </div>
 
+  <!-- Whale detection settings -->
+  <div class="card">
+    <h2>🐋 Whale Detection</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:12px">Alert when a single trade exceeds a threshold on a hot token (one that has already triggered a price alert).</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <label style="font-size:12px;color:var(--muted)">Enabled
+        <select id="whaleEnabled" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Min trade ($)
+        <input type="number" id="whaleMinUsd" min="1000" step="1000" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Check every (cycles)
+        <input type="number" id="whaleCheckEvery" min="1" max="100" step="1" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Cooldown (min)
+        <input type="number" id="whaleCooldown" min="1" step="5" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </label>
+    </div>
+    <button class="btn-submit" onclick="saveWhaleSettings()">💾 Save</button>
+    <span id="whaleSettingsMsg" style="margin-left:10px;font-size:12px;color:var(--green)"></span>
+  </div>
+
   <!-- Muted events -->
   <div class="card">
     <h2>אירועים מושתקים</h2>
@@ -519,6 +544,32 @@ async function saveVolumeSettings() {
   if (d.ok) setTimeout(() => msg.textContent = '', 3000);
 }
 loadVolumeSettings();
+
+async function loadWhaleSettings() {
+  const r = await fetch('/api/whale-settings');
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('whaleEnabled').value   = d.enabled ? 'true' : 'false';
+  document.getElementById('whaleMinUsd').value     = d.min_usd;
+  document.getElementById('whaleCheckEvery').value = d.check_every;
+  document.getElementById('whaleCooldown').value   = Math.round(d.cooldown / 60);
+}
+async function saveWhaleSettings() {
+  const enabled     = document.getElementById('whaleEnabled').value === 'true';
+  const min_usd     = parseFloat(document.getElementById('whaleMinUsd').value);
+  const check_every = parseInt(document.getElementById('whaleCheckEvery').value);
+  const cooldown    = parseFloat(document.getElementById('whaleCooldown').value) * 60;
+  if (!min_usd || !check_every || !cooldown) return;
+  const r = await fetch('/api/whale-settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({enabled, min_usd, check_every, cooldown})
+  });
+  const d = await r.json();
+  const msg = document.getElementById('whaleSettingsMsg');
+  msg.textContent = d.ok ? '\u2713 Saved' : d.message;
+  if (d.ok) setTimeout(() => msg.textContent = '', 3000);
+}
+loadWhaleSettings();
 
 async function runAiCommand() {
   const inp = document.getElementById('aiCmdInput');
@@ -1492,6 +1543,33 @@ def api_set_volume_settings():
         return jsonify({"ok": False, "message": "Invalid values"}), 400
     store.set_volume_settings(spike_usd, check_every, cooldown)
     msg = f"Volume settings updated: spike=${spike_usd:,.0f}, every {check_every} cycles"
+    store.set_action_msg(msg)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/whale-settings", methods=["GET"])
+@login_required
+@admin_required
+def api_get_whale_settings():
+    return jsonify(store.get_whale_settings())
+
+
+@app.route("/api/whale-settings", methods=["POST"])
+@login_required
+@admin_required
+def api_set_whale_settings():
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        enabled     = bool(data.get("enabled", True))
+        min_usd     = float(data.get("min_usd", 10000))
+        check_every = int(data.get("check_every", 5))
+        cooldown    = float(data.get("cooldown", 1800))
+        if min_usd <= 0 or check_every <= 0 or cooldown <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "message": "Invalid values"}), 400
+    store.set_whale_settings(enabled, min_usd, check_every, cooldown)
+    msg = f"Whale settings updated: min=${min_usd:,.0f}, every {check_every} cycles"
     store.set_action_msg(msg)
     return jsonify({"ok": True, "message": msg})
 

@@ -75,6 +75,13 @@ class DashboardStore:
         self._volume_cooldown: float = 3600.0
         self._pending_volume_settings: dict | None = None
 
+        # Whale detection settings
+        self._whale_enabled: bool = True
+        self._whale_min_usd: float = 10000.0
+        self._whale_check_every: int = 5
+        self._whale_cooldown: float = 1800.0
+        self._pending_whale_settings: dict | None = None
+
     # ------------------------------------------------------------------
     # Writers (called from the main loop thread)
     # ------------------------------------------------------------------
@@ -212,6 +219,36 @@ class DashboardStore:
             val = self._pending_volume_settings
             self._pending_volume_settings = None
             return val
+
+    def init_whale_settings(self, enabled: bool, min_usd: float, check_every: int, cooldown: float) -> None:
+        with self._lock:
+            self._whale_enabled = enabled
+            self._whale_min_usd = min_usd
+            self._whale_check_every = check_every
+            self._whale_cooldown = cooldown
+
+    def get_whale_settings(self) -> dict:
+        with self._lock:
+            return {"enabled": self._whale_enabled, "min_usd": self._whale_min_usd, "check_every": self._whale_check_every, "cooldown": self._whale_cooldown}
+
+    def set_whale_settings(self, enabled: bool, min_usd: float, check_every: int, cooldown: float) -> None:
+        with self._lock:
+            self._whale_enabled = enabled
+            self._whale_min_usd = min_usd
+            self._whale_check_every = check_every
+            self._whale_cooldown = cooldown
+            self._pending_whale_settings = {"enabled": enabled, "min_usd": min_usd, "check_every": check_every, "cooldown": cooldown}
+
+    def consume_whale_settings_change(self) -> dict | None:
+        with self._lock:
+            val = self._pending_whale_settings
+            self._pending_whale_settings = None
+            return val
+
+    def get_hot_token_ids(self, min_alert_count: int = 1) -> list[str]:
+        """Return token IDs that have triggered at least min_alert_count price alerts."""
+        with self._lock:
+            return [tid for tid in self._watched_tokens if self._market_stats.get(tid, {}).get("alert_count", 0) >= min_alert_count]
 
     # ------------------------------------------------------------------
     # Trigger methods (called from Flask worker threads)
