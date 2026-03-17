@@ -67,6 +67,10 @@ def main() -> None:
     # Railway assigns PORT; fall back to DASHBOARD_PORT for local use
     dashboard_port   = int(os.getenv("PORT", os.getenv("DASHBOARD_PORT", "5588")))
 
+    volume_spike_usd    = float(os.getenv("VOLUME_SPIKE_USD", "25000"))
+    volume_check_every  = int(os.getenv("VOLUME_CHECK_EVERY", "10"))   # cycles
+    volume_alert_cooldown = float(os.getenv("VOLUME_ALERT_COOLDOWN_SECONDS", "3600"))
+
     if not bot_token or not chat_id:
         logger.error("Error: Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env")
         sys.exit(1)
@@ -119,6 +123,18 @@ def main() -> None:
         from dashboard_store import store
         store.set_tokens_tracked(len(token_ids))
 
+    # ── Volume spike tracking ────────────────────────────────────────
+    prev_event_volumes: dict[str, float] = {
+        str(e["id"]): float(e.get("volume", 0) or 0) for e in events
+    }
+    event_id_to_label: dict[str, str] = {
+        str(e["id"]): e.get("title", "Unknown") for e in events
+    }
+    event_id_to_slug: dict[str, str] = {
+        str(e["id"]): e.get("slug", "") for e in events
+    }
+    last_volume_alert: dict[str, float] = {}  # event_id → timestamp
+
     # ── Main loop ───────────────────────────────────────────────────
     logger.info(f"Monitoring Begin: {len(token_ids)} tokens. Threshold: {threshold_pct}%")
 
@@ -143,6 +159,36 @@ def main() -> None:
                     logger.info(f"Refresh complete: {len(token_ids)} tokens tracked.")
                     store.set_tokens_tracked(len(token_ids))
                     store.set_action_msg(f"רענון הושלם ✅ — {len(token_ids)} טוקנים פעילים")
+
+            # ── Volume spike check (every N cycles) ─────────────────
+            if cycle % volume_check_every == 0:
+                fresh_events = fetcher.fetch_politics_events(
+                    limit=fetch_limit, min_volume=min_volume, top_n=top_n
+                )
+                now = time.time()
+                for ev in fresh_events:
+                    eid = str(ev["id"])
+                    new_vol = float(ev.get("volume", 0) or 0)
+                    old_vol = prev_event_volumes.get(eid, new_vol)
+                    delta = new_vol - old_vol
+                    if delta >= volume_spike_usd:
+                        last_sent = last_volume_alert.get(eid, 0)
+                        if now - last_sent >= volume_alert_cooldown:
+                            label = ev.get("title", event_id_to_label.get(eid, "Unknown"))
+                            slug  = ev.get("slug",  event_id_to_slug.get(eid, ""))
+                            url   = f"https://polymarket.com/event/{slug}" if slug else ""
+                            window_min = int(volume_check_every * poll_interval / 60) or 1
+                            msg = (
+                                f"💰 <b>Volume Spike!</b>\n"
+                                f"<b>{label}</b>\n"
+                                f"+{_fmt_volume(delta)} in the last ~{window_min} min\n"
+                                f"📊 Total: {_fmt_volume(new_vol)}"
+                                + (f"\n<a href='{url}'>View on Polymarket</a>" if url else "")
+                            )
+                            alerter._send_message(msg)
+                            last_volume_alert[eid] = now
+                            logger.info(f"💰 VOLUME SPIKE: {label} +{_fmt_volume(delta)}")
+                    prev_event_volumes[eid] = new_vol
 
             prices = fetcher.fetch_midpoints(token_ids)
 
