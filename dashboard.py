@@ -2429,6 +2429,7 @@ def api_nowpayments_create_subscription():
             timeout=15,
         )
         d = r.json()
+        logger.info("NOWPayments response (status=%s): %s", r.status_code, d)
     except Exception as exc:
         logger.warning("NOWPayments API error: %s", exc)
         return jsonify({"ok": False, "message": str(exc)}), 500
