@@ -1311,7 +1311,7 @@ function renderOnboard() {
       <div class="ob-footer">
         <div class="ob-dots">${dots}</div>
         <div class="ob-btns">
-          ${obStep > 0 ? '<button class="ob-btn" onclick="obNav(-1)">← Back</button>' : '<label style="font-size:11px;color:#888;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="obDontShow" style="cursor:pointer"> Don\'t show again</label>'}
+          ${obStep > 0 ? '<button class="ob-btn" onclick="obNav(-1)">\u2190 Back</button>' : '<label style="font-size:11px;color:#888;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="obDontShow" style="cursor:pointer"> Don\u2019t show again</label>'}
           <button class="ob-btn ob-btn-primary" onclick="${isLast ? 'closeOnboard()' : 'obNav(1)'}">
             ${isLast ? '✓ Got it!' : 'Next →'}
           </button>
