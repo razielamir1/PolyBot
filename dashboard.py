@@ -869,6 +869,7 @@ _HTML = """<!DOCTYPE html>
       <button class="cat-pill" onclick="setFilter('Other')">📌 Other</button>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--fg-muted)"><span id="filterStats"></span></div>
+    <div id="topicList" style="margin-top:10px;display:none;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
   </div>
 
   <div class="card">
@@ -1015,6 +1016,28 @@ function setFilter(cat) {
   });
   currentPage = 1;
   renderMarketPage();
+  renderTopicList(cat);
+}
+
+function renderTopicList(cat) {
+  const el = document.getElementById('topicList');
+  if (!el) return;
+  if (!cat) { el.style.display = 'none'; return; }
+  const topics = allGrouped.filter(ev => ev.outcomes.some(o => o.category === cat));
+  if (!topics.length) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = topics.map(ev => {
+    const alerts = ev.alert_count > 0 ? `<span style="background:#e05c3a;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;margin-left:4px">${ev.alert_count}</span>` : '';
+    const link = ev.url ? `<a href="${ev.url}" target="_blank" style="color:var(--muted);margin-left:4px;text-decoration:none">🔗</a>` : '';
+    return `<div style="display:flex;align-items:center;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:12px;cursor:pointer" onclick="filterByEvent('${ev.event_label.replace(/'/g,'\\\'')}')" title="${ev.event_label}">
+      <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ev.event_label}</span>${alerts}${link}
+    </div>`;
+  }).join('');
+}
+
+function filterByEvent(label) {
+  const row = document.querySelector(\`#mktBody tr[data-event="${label.replace(/"/g,'&quot;')}"]\`);
+  if (row) row.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 async function loadMyWatchlist() {
@@ -1137,6 +1160,7 @@ function renderMarketPage() {
   const totalAlertSum = allGrouped.reduce((s, ev) => s + ev.alert_count, 0);
   const fs = document.getElementById('filterStats');
   if (fs) fs.textContent = `${totalOutcomes} markets · ${totalAlertSum} alerts`;
+  renderTopicList(activeFilter);
 
   const tbody = document.getElementById('marketBody');
   if (!slice.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">${t('empty_markets')}</td></tr>`; return; }
