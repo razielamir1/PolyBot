@@ -417,7 +417,13 @@ _ADMIN_HTML = """<!DOCTYPE html>
   <div class="card">
     <h2>💰 Volume Spike Alerts</h2>
     <p style="color:var(--muted);font-size:12px;margin-bottom:12px">Alert when a market receives large inflows. Checked every N cycles.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <label style="font-size:12px;color:var(--muted)">Enabled
+        <select id="volEnabled" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </label>
       <label style="font-size:12px;color:var(--muted)">Min spike ($)
         <input type="number" id="volSpikeUsd" min="1000" step="1000" style="width:100%;margin-top:4px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
       </label>
@@ -525,18 +531,20 @@ async function loadVolumeSettings() {
   const r = await fetch('/api/volume-settings');
   if (!r.ok) return;
   const d = await r.json();
+  document.getElementById('volEnabled').value    = d.enabled ? 'true' : 'false';
   document.getElementById('volSpikeUsd').value   = d.spike_usd;
   document.getElementById('volCheckEvery').value = d.check_every;
   document.getElementById('volCooldown').value   = +(d.cooldown / 3600).toFixed(2);
 }
 async function saveVolumeSettings() {
+  const enabled     = document.getElementById('volEnabled').value === 'true';
   const spike_usd   = parseFloat(document.getElementById('volSpikeUsd').value);
   const check_every = parseInt(document.getElementById('volCheckEvery').value);
   const cooldown    = parseFloat(document.getElementById('volCooldown').value) * 3600;
   if (!spike_usd || !check_every || !cooldown) return;
   const r = await fetch('/api/volume-settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({spike_usd, check_every, cooldown})
+    body: JSON.stringify({enabled, spike_usd, check_every, cooldown})
   });
   const d = await r.json();
   const msg = document.getElementById('volSettingsMsg');
@@ -1558,6 +1566,7 @@ def api_get_volume_settings():
 def api_set_volume_settings():
     data = request.get_json(force=True, silent=True) or {}
     try:
+        enabled      = bool(data.get("enabled", True))
         spike_usd    = float(data.get("spike_usd", 25000))
         check_every  = int(data.get("check_every", 10))
         cooldown     = float(data.get("cooldown", 3600))
@@ -1565,8 +1574,8 @@ def api_set_volume_settings():
             raise ValueError
     except (ValueError, TypeError):
         return jsonify({"ok": False, "message": "Invalid values"}), 400
-    store.set_volume_settings(spike_usd, check_every, cooldown)
-    msg = f"Volume settings updated: spike=${spike_usd:,.0f}, every {check_every} cycles"
+    store.set_volume_settings(enabled, spike_usd, check_every, cooldown)
+    msg = f"Volume alerts {'enabled' if enabled else 'disabled'}: spike=${spike_usd:,.0f}, every {check_every} cycles"
     store.set_action_msg(msg)
     return jsonify({"ok": True, "message": msg})
 

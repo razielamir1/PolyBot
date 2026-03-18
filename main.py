@@ -68,6 +68,7 @@ def main() -> None:
     # Railway assigns PORT; fall back to DASHBOARD_PORT for local use
     dashboard_port   = int(os.getenv("PORT", os.getenv("DASHBOARD_PORT", "5588")))
 
+    volume_enabled        = os.getenv("VOLUME_ENABLED", "true").lower() == "true"
     volume_spike_usd      = float(os.getenv("VOLUME_SPIKE_USD", "25000"))
     volume_check_every    = int(os.getenv("VOLUME_CHECK_EVERY", "10"))
     volume_alert_cooldown = float(os.getenv("VOLUME_ALERT_COOLDOWN_SECONDS", "3600"))
@@ -98,7 +99,7 @@ def main() -> None:
         from dashboard_store import store
         store.register_alerter(alerter)
         store.init_threshold(threshold_pct)
-        store.init_volume_settings(volume_spike_usd, volume_check_every, volume_alert_cooldown)
+        store.init_volume_settings(volume_enabled, volume_spike_usd, volume_check_every, volume_alert_cooldown)
         store.init_whale_settings(whale_enabled, whale_min_usd, whale_check_every, whale_cooldown)
         start_dashboard(port=dashboard_port)
         logger.info(f"Dashboard running at http://localhost:{dashboard_port}")
@@ -171,6 +172,7 @@ def main() -> None:
 
                 new_vol_cfg = store.consume_volume_settings_change()
                 if new_vol_cfg:
+                    volume_enabled        = new_vol_cfg["enabled"]
                     volume_spike_usd      = new_vol_cfg["spike_usd"]
                     volume_check_every    = new_vol_cfg["check_every"]
                     volume_alert_cooldown = new_vol_cfg["cooldown"]
@@ -185,7 +187,7 @@ def main() -> None:
                     logger.info(f"Whale settings updated: enabled={whale_enabled}, min=${whale_min_usd:,.0f}, every={whale_check_every} cycles")
 
             # ── Volume spike check (every N cycles) ─────────────────
-            if cycle % volume_check_every == 0:
+            if volume_enabled and cycle % volume_check_every == 0:
                 fresh_events = fetcher.fetch_politics_events(
                     limit=fetch_limit, min_volume=min_volume, top_n=top_n
                 )
